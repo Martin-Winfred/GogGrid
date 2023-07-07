@@ -1,0 +1,58 @@
+{
+    "cluster_name": "MyCluster",
+    "nodes": [
+      {
+        "node_id": "node1",
+        "ip_address": "192.168.0.1",
+        "status": "active",
+        "system_type": "Linux",
+        "cpu_usage": 0.8,
+        "memory_usage": 0.6,
+        "disk_usage": 0.4,
+        "network_interface": {
+          "interface_name": "eth0",
+          "speed": 1000,
+          "rx_bytes": 1000000,
+          "tx_bytes": 2000000
+        },
+        "network_usage": {
+          "start_time": "2023-07-04 10:00:00",
+          "end_time": "2023-07-04 11:00:00",
+          "rx_bytes": 5000000,
+          "tx_bytes": 6000000
+        },
+        "system_load": {
+          "load_avg_1min": 1.2,
+          "load_avg_5min": 0.8,
+          "load_avg_15min": 0.6
+        }
+      },
+      {
+        "node_id": "node2",
+        "ip_address": "192.168.0.2",
+        "status": "active",
+        "system_type": "Windows",
+        "cpu_usage": 0.6,
+        "memory_usage": 0.7,
+        "disk_usage": 0.3,
+        "network_interface": {
+          "interface_name": "eth0",
+          "speed": 1000,
+          "rx_bytes": 1500000,
+          "tx_bytes": 2500000
+        },
+        "network_usage": {
+          "start_time": "2023-07-04 10:00:00",
+          "end_time": "2023-07-04 11:00:00",
+          "rx_bytes": 4000000,
+          "tx_bytes": 4500000
+        },
+        "system_load": {
+          "load_avg_1min": 0.9,
+          "load_avg_5min": 0.7,
+          "load_avg_15min": 0.5
+        }
+      }
+    ]
+  }
+  
