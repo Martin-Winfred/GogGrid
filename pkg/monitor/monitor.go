@@ -35,32 +35,35 @@ type HostMonitor struct {
 
 // GetHostMonitor 返回主机监控数据的结构体
 func GetHostMonitor() (hostMonitor HostMonitor, err error) {
+	//Get host Arch
 	hostMonitor.Arch = runtime.GOARCH
+	//Get OS type
 	hostMonitor.OSInfo = runtime.GOOS
+	//Get HostName
 	hostMonitor.Hostname, err = os.Hostname()
 	if err != nil {
 		err = errors.New("can't detect HostInfo")
 		return
 	}
-
+	//get Kernel Version
 	hostMonitor.KernelVer, err = host.KernelVersion()
 	if err != nil {
 		err = errors.New("can not load kernelVerion")
 		return
 	}
-
+	//System faiily and version info
 	hostMonitor.Platform, hostMonitor.Family, hostMonitor.Version, err = host.PlatformInformation()
 	if err != nil {
 		err = errors.New("can't load platform version")
 		return
 	}
-
+	//Get overall CPu usage
 	hostMonitor.CPULoad, err = cpu.Percent(time.Second, false)
 	if err != nil {
 		err = errors.New("unable to get CPU load per sec")
 		return
 	}
-
+	//Memory Info and use percentage
 	memInfo, err := mem.VirtualMemory()
 	if err != nil {
 		err = errors.New("unable to get memory load per sec")
@@ -70,19 +73,20 @@ func GetHostMonitor() (hostMonitor HostMonitor, err error) {
 	hostMonitor.MemUsed = memInfo.Used
 	hostMonitor.MemTotal = memInfo.Total
 
-	netCard, err := net3.IOCounters(true)
+	//NetSpeed
+	netCounters, err := net3.IOCounters(true)
 	if err != nil {
-		err = errors.New("can't get Net Info")
+		err = errors.New("unable to get network counters")
 		return
 	}
-	for _, card := range netCard {
-		if card.Name == "eth0" { // 修改为你需要的网络接口名称
-			hostMonitor.NetName = card.Name
-			hostMonitor.BytesRecv = card.BytesRecv
-			hostMonitor.BytesSent = card.BytesSent
-			break
-		}
+
+	var totalBytesRecv, totalBytesSent uint64
+	for _, counter := range netCounters {
+		totalBytesRecv += counter.BytesRecv
+		totalBytesSent += counter.BytesSent
 	}
+	hostMonitor.BytesRecv = totalBytesRecv
+	hostMonitor.BytesSent = totalBytesSent
 
 	hostMonitor.LocalIP = getLocalIP()
 
