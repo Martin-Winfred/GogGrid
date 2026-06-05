@@ -1,21 +1,87 @@
-# If you prefer the allow list template instead of the deny list, see community template:
-# https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
-#
-# Binaries for programs and plugins
+# ===========================
+# Binaries & Build Output
+# ===========================
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
-
-# Test binary, built with `go test -c`
 *.test
-
-# Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
-# Dependency directories (remove the comment below to include it)
-# vendor/
+# Project binary
+/GogGrid
+/cmd/GogGrid/GogGrid
+
+# ===========================
+# Go
+# ===========================
+# Dependency directories
+vendor/
 
 # Go workspace file
 go.work
+go.work.sum
+
+# ===========================
+# Database & Data
+# ===========================
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# ===========================
+# Config & Environment
+# ===========================
+# Local config overrides (keep template)
+config.local.yaml
+config.local.yml
+config.local.json
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# ===========================
+# IDE & Editor
+# ===========================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.bak
+
+# ===========================
+# OS Generated
+# ===========================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# ===========================
+# Logs & Runtime
+# ===========================
+*.log
+/tmp/
+/logs/
+
+# ===========================
+# Test Coverage
+# ===========================
+coverage.out
+coverage.html
+*.coverprofile
+
+# ===========================
+# Dist & Package
+# ===========================
+/dist/
+/build/
