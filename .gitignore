@@ -85,3 +85,6 @@ coverage.html
 # ===========================
 /dist/
 /build/
+# CocoIndex Code (ccc)
+/.cocoindex_code/
+.omo/
