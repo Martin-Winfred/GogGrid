@@ -1,0 +1,19 @@
+cluster:
+  name: "TestCluster"
+  bind_addr: "0.0.0.0"
+  bind_port: 7946
+  seeds:
+    - "10.0.0.1:7946"
+    - "10.0.0.2:7946"
+monitor:
+  interval: 10s
+storage:
+  db_path: "/tmp/test.db"
+  retention: 720h
+api:
+  enabled: true
+  bind_addr: "127.0.0.1"
+  port: 9090
+gossip:
+  sync_interval: 60s
+  probe_interval: 10s
