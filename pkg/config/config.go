@@ -1,7 +1,6 @@
 package config
 
 import (
-	"flag"
 	"fmt"
 	"log"
 	"net"
@@ -94,33 +93,28 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
-// ParseFlags parses CLI flags and overrides config
-// Registers the following flags:
-//   --config       config file path
-//   --cluster-name cluster name
-//   --bind         Gossip bind address (ip:port)
-//   --api-bind     API bind address (ip:port)
-//   --api-token    API authentication token
-func ParseFlags(cfg *Config) {
-	configPath := flag.String("config", "", "config file path")
-	clusterName := flag.String("cluster-name", "", "cluster name")
-	bindAddr := flag.String("bind", "", "Gossip bind address (ip:port)")
-	apiBind := flag.String("api-bind", "", "API bind address (ip:port)")
-	apiToken := flag.String("api-token", "", "API authentication token")
-	flag.Parse()
-	if *configPath != "" {
-		loaded, err := Load(*configPath)
-		if err != nil {
-			log.Printf("WARNING: failed to load config file %s: %v", *configPath, err)
-		} else {
-			mergeConfig(cfg, loaded)
-		}
+// LoadConfigFile loads and merges YAML configuration onto cfg.
+// If configPath is empty, this is a no-op.
+func LoadConfigFile(cfg *Config, configPath string) {
+	if configPath == "" {
+		return
 	}
-	if *clusterName != "" {
-		cfg.Cluster.Name = *clusterName
+	loaded, err := Load(configPath)
+	if err != nil {
+		log.Printf("WARNING: failed to load config file %s: %v", configPath, err)
+		return
 	}
-	if *bindAddr != "" {
-		if host, port, err := net.SplitHostPort(*bindAddr); err == nil {
+	mergeConfig(cfg, loaded)
+}
+
+// ParseFlags applies CLI flag overrides to cfg.
+// Flags must have been registered and flag.Parse() called by the caller.
+func ParseFlags(cfg *Config, clusterName, bindAddr, apiBind, apiToken string) {
+	if clusterName != "" {
+		cfg.Cluster.Name = clusterName
+	}
+	if bindAddr != "" {
+		if host, port, err := net.SplitHostPort(bindAddr); err == nil {
 			cfg.Cluster.BindAddr = host
 			if p, err := strconv.Atoi(port); err != nil {
 				log.Printf("WARNING: invalid bind port %q: %v", port, err)
@@ -129,8 +123,8 @@ func ParseFlags(cfg *Config) {
 			}
 		}
 	}
-	if *apiBind != "" {
-		if host, port, err := net.SplitHostPort(*apiBind); err == nil {
+	if apiBind != "" {
+		if host, port, err := net.SplitHostPort(apiBind); err == nil {
 			cfg.API.BindAddr = host
 			if p, err := strconv.Atoi(port); err != nil {
 				log.Printf("WARNING: invalid API port %q: %v", port, err)
@@ -139,8 +133,8 @@ func ParseFlags(cfg *Config) {
 			}
 		}
 	}
-	if *apiToken != "" {
-		cfg.API.Token = *apiToken
+	if apiToken != "" {
+		cfg.API.Token = apiToken
 	}
 }
 

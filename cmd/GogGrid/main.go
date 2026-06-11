@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -18,10 +19,19 @@ import (
 )
 
 func main() {
+	// Register CLI flags
+	configPath := flag.String("config", "", "config file path")
+	clusterName := flag.String("cluster-name", "", "cluster name")
+	bindAddr := flag.String("bind", "", "Gossip bind address (ip:port)")
+	apiBind := flag.String("api-bind", "", "API bind address (ip:port)")
+	apiToken := flag.String("api-token", "", "API authentication token")
+	flag.Parse()
+
 	// 1. Load config (defaults → YAML → env → CLI)
 	cfg := config.DefaultConfig()
+	config.LoadConfigFile(cfg, *configPath)
 	config.ApplyEnv(cfg)
-	config.ParseFlags(cfg)
+	config.ParseFlags(cfg, *clusterName, *bindAddr, *apiBind, *apiToken)
 
 	// 2. Initialize structured logging
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
