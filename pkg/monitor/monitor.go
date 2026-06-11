@@ -1,7 +1,6 @@
 package monitor
 
 import (
-	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -69,13 +68,13 @@ func GetHostMonitor() (hostMonitor HostMonitor, err error) {
 	// Get overall CPU usage
 	hostMonitor.CPULoad, err = cpu.Percent(time.Second, false)
 	if err != nil {
-		err = errors.New("unable to get CPU load per sec")
+		err = fmt.Errorf("unable to get CPU load per sec: %w", err)
 		return
 	}
 	// Get memory info and usage percentage
 	memInfo, err := mem.VirtualMemory()
 	if err != nil {
-		err = errors.New("unable to get memory load per sec")
+		err = fmt.Errorf("unable to get memory load per sec: %w", err)
 		return
 	}
 	hostMonitor.MemUsage = memInfo.UsedPercent
@@ -85,7 +84,7 @@ func GetHostMonitor() (hostMonitor HostMonitor, err error) {
 	// Get network counters
 	netCounters, err := net3.IOCounters(true)
 	if err != nil {
-		err = errors.New("unable to get network counters")
+		err = fmt.Errorf("unable to get network counters: %w", err)
 		return
 	}
 
@@ -107,7 +106,7 @@ func GetHostMonitor() (hostMonitor HostMonitor, err error) {
 	// Get disk usage
 	diskUsage, err := disk.Usage("/")
 	if err != nil {
-		err = errors.New("unable to get disk usage")
+		err = fmt.Errorf("unable to get disk usage: %w", err)
 		return
 	}
 	hostMonitor.DiskUsage = diskUsage.UsedPercent
@@ -115,7 +114,7 @@ func GetHostMonitor() (hostMonitor HostMonitor, err error) {
 	// Get system load
 	loadAvg, err := load.Avg()
 	if err != nil {
-		err = errors.New("unable to get load average")
+		err = fmt.Errorf("unable to get load average: %w", err)
 		return
 	}
 	hostMonitor.LoadAvg1min = loadAvg.Load1

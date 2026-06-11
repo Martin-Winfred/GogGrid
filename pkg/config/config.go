@@ -119,13 +119,21 @@ func ParseFlags(cfg *Config) {
 	if *bindAddr != "" {
 		if host, port, err := net.SplitHostPort(*bindAddr); err == nil {
 			cfg.Cluster.BindAddr = host
-			cfg.Cluster.BindPort, _ = strconv.Atoi(port)
+			if p, err := strconv.Atoi(port); err != nil {
+				log.Printf("WARNING: invalid bind port %q: %v", port, err)
+			} else {
+				cfg.Cluster.BindPort = p
+			}
 		}
 	}
 	if *apiBind != "" {
 		if host, port, err := net.SplitHostPort(*apiBind); err == nil {
 			cfg.API.BindAddr = host
-			cfg.API.Port, _ = strconv.Atoi(port)
+			if p, err := strconv.Atoi(port); err != nil {
+				log.Printf("WARNING: invalid API port %q: %v", port, err)
+			} else {
+				cfg.API.Port = p
+			}
 		}
 	}
 }
@@ -137,7 +145,11 @@ func ApplyEnv(cfg *Config) {
 		cfg.Cluster.Name = v
 	}
 	if v := os.Getenv("GOGGRID_API_PORT"); v != "" {
-		fmt.Sscanf(v, "%d", &cfg.API.Port)
+		if p, err := strconv.Atoi(v); err != nil {
+			log.Printf("WARNING: invalid GOGGRID_API_PORT %q: %v", v, err)
+		} else {
+			cfg.API.Port = p
+		}
 	}
 }
 

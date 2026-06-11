@@ -126,7 +126,11 @@ func (g *GossipManager) getClusterStateJSON() []byte {
 		return nil
 	}
 	msg := NewGossipMessage(MsgClusterSync, g.localNode, payload)
-	data, _ := EncodeMessage(msg)
+	data, err := EncodeMessage(msg)
+	if err != nil {
+		slog.Warn("encode message failed during cluster sync", "error", err)
+		return nil
+	}
 	return data
 }
 

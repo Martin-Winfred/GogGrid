@@ -134,14 +134,23 @@ func (a *APIServer) handleNodeDetail(w http.ResponseWriter, r *http.Request) {
 func (a *APIServer) handleNodeHistory(w http.ResponseWriter, r *http.Request, nodeID string) {
 	var since, until time.Time
 	if s := r.URL.Query().Get("since"); s != "" {
-		since, _ = time.Parse(time.RFC3339, s)
+		if t, err := time.Parse(time.RFC3339, s); err != nil {
+			slog.Warn("invalid since parameter, ignoring", "value", s, "error", err)
+		} else {
+			since = t
+		}
 	}
 	if u := r.URL.Query().Get("until"); u != "" {
-		until, _ = time.Parse(time.RFC3339, u)
+		if t, err := time.Parse(time.RFC3339, u); err != nil {
+			slog.Warn("invalid until parameter, ignoring", "value", u, "error", err)
+		} else {
+			until = t
+		}
 	}
 	records, err := a.store.GetNodeHistory(nodeID, since, until)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		slog.Warn("node history query failed", "error", err)
+		http.Error(w, `{"error":"internal server error"}`, 500)
 		return
 	}
 	writeJSON(w, http.StatusOK, records)

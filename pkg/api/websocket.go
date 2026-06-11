@@ -55,6 +55,7 @@ func (h *wsHub) Run() {
 		for event := range ch {
 			data, err := json.Marshal(event)
 			if err != nil {
+				slog.Warn("WebSocket event marshal failed", "error", err)
 				continue
 			}
 			select {
