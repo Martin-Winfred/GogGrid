@@ -191,6 +191,9 @@ func mergeConfig(dst, src *Config) {
 	if src.API.Port != 0 {
 		dst.API.Port = src.API.Port
 	}
+	if src.API.Token != "" {
+		dst.API.Token = src.API.Token
+	}
 	if src.Gossip.SyncInterval != 0 {
 		dst.Gossip.SyncInterval = src.Gossip.SyncInterval
 	}
