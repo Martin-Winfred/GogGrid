@@ -195,3 +195,54 @@ func mergeConfig(dst, src *Config) {
 		dst.Gossip.ProbeInterval = src.Gossip.ProbeInterval
 	}
 }
+
+// GenerateDefault writes a default configuration template to path.
+// The file is generated only if it does not already exist.
+func GenerateDefault(path string) error {
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	}
+	cfg := DefaultConfig()
+	content := fmt.Sprintf(`# GogGrid configuration — generated automatically on first run.
+# Edit and restart to apply changes.
+
+cluster:
+  name: "%s"
+  bind_addr: "%s"
+  bind_port: %d
+  seeds: []
+
+monitor:
+  interval: %s
+
+storage:
+  db_path: "%s"
+  retention: %s
+
+api:
+  enabled: %t
+  bind_addr: "%s"
+  port: %d
+  token: ""
+
+gossip:
+  sync_interval: %s
+  probe_interval: %s
+`,
+		cfg.Cluster.Name,
+		cfg.Cluster.BindAddr,
+		cfg.Cluster.BindPort,
+		cfg.Monitor.Interval,
+		cfg.Storage.DBPath,
+		cfg.Storage.Retention,
+		cfg.API.Enabled,
+		cfg.API.BindAddr,
+		cfg.API.Port,
+		cfg.Gossip.SyncInterval,
+		cfg.Gossip.ProbeInterval,
+	)
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+	return nil
+}

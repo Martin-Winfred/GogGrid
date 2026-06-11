@@ -27,9 +27,17 @@ func main() {
 	apiToken := flag.String("api-token", "", "API authentication token")
 	flag.Parse()
 
-	// 1. Load config (defaults → YAML → env → CLI)
+	// 1. Load config (defaults → auto goggrid.yaml → env → CLI)
 	cfg := config.DefaultConfig()
-	config.LoadConfigFile(cfg, *configPath)
+	if *configPath == "" {
+		if _, err := os.Stat("goggrid.yaml"); err == nil {
+			config.LoadConfigFile(cfg, "goggrid.yaml")
+		} else {
+			config.GenerateDefault("goggrid.yaml")
+		}
+	} else {
+		config.LoadConfigFile(cfg, *configPath)
+	}
 	config.ApplyEnv(cfg)
 	config.ParseFlags(cfg, *clusterName, *bindAddr, *apiBind, *apiToken)
 
