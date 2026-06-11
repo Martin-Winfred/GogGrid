@@ -130,7 +130,9 @@ func (c *wsClient) writePump() {
 		case message, ok := <-c.send:
 			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if !ok {
-				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				if err := c.conn.WriteMessage(websocket.CloseMessage, []byte{}); err != nil {
+					slog.Warn("WebSocket close message write failed", "error", err)
+				}
 				return
 			}
 			if err := c.conn.WriteMessage(websocket.TextMessage, message); err != nil {
