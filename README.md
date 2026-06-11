@@ -27,7 +27,7 @@
 | 🔄 **Decentralized** | Every node holds full cluster state — no single point of failure |
 | 📡 **Gossip Protocol** | Auto-discovery, state propagation, failure detection via [hashicorp/memberlist](https://github.com/hashicorp/memberlist) |
 | 📊 **System Metrics** | CPU, memory, disk, load averages, network I/O per node |
-| 🕐 **Vector Clock + LWW** | Conflict resolution with version vectors and Last-Writer-Wins |
+| 🕐 **LWW Conflict Resolution** | Last-Writer-Wins with scalar version (VectorClock reserved for future fast-sync) |
 | 🌐 **REST API** | Cluster state, node details, time-series history queries |
 | 🔌 **WebSocket Push** | Real-time updates on node state changes |
 | 💾 **SQLite Persistence** | Embedded database, configurable history retention |

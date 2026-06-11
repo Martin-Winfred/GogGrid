@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"os"
 	"testing"
 	"time"
 
@@ -152,6 +151,3 @@ func TestCleanOldRecords(t *testing.T) {
 		t.Errorf("records after cleanup = %d, want 1", len(records))
 	}
 }
-
-// Prevent os from being reported as unused (required for some test frameworks)
-var _ = os.Args

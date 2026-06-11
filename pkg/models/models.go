@@ -1,7 +1,6 @@
 package models
 
 import (
-	"encoding/json"
 	"time"
 )
 
@@ -11,14 +10,6 @@ type NetInterface struct {
 	Speed         int64  `json:"speed"          gorm:"column:net_speed"`
 	RxBytes       uint64 `json:"rx_bytes"       gorm:"column:net_rx_bytes"`
 	TxBytes       uint64 `json:"tx_bytes"       gorm:"column:net_tx_bytes"`
-}
-
-// NetworkUsage represents network usage stats
-type NetworkUsage struct {
-	StartTime time.Time `json:"start_time"`
-	EndTime   time.Time `json:"end_time"`
-	RxBytes   uint64    `json:"rx_bytes"`
-	TxBytes   uint64    `json:"tx_bytes"`
 }
 
 // SystemLoad represents system load averages
@@ -56,7 +47,11 @@ type HistoryRecord struct {
 	SystemLoad   SystemLoad   `gorm:"embedded;embeddedPrefix:sys_"`
 }
 
-// VectorClock represents a vector clock
+// VectorClock tracks causal ordering of state updates across nodes.
+// Reserved for future fast-sync: when a new node joins the cluster and needs
+// bulk state transfer, VectorClock will enable efficient delta computation.
+// Currently not wired into conflict resolution — state.resolveConflict()
+// uses scalar Version + LWW (Last-Writer-Wins).
 type VectorClock map[string]int64
 
 // Increment increments the version for a node
@@ -109,6 +104,3 @@ type ClusterState struct {
 	LocalNodeID string                `json:"local_node_id"`
 	UpdatedAt   time.Time             `json:"updated_at"`
 }
-
-// Ensure json is used (imported for future JSON utilities)
-var _ = json.Marshal
