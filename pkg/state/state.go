@@ -178,10 +178,17 @@ func (sm *StateManager) Unsubscribe(ch chan NodeChangeEvent) {
 // broadcast sends event to all subscribers (non-blocking, drops if slow)
 func (sm *StateManager) broadcast(event NodeChangeEvent) {
 	for ch := range sm.subscribers {
-		select {
-		case ch <- event:
-		default:
-			// Subscriber too slow, drop message to avoid blocking
-		}
+		sm.sendEvent(ch, event)
+	}
+}
+
+// sendEvent sends to a subscriber channel, recovering from panic if the channel
+// was closed concurrently by Unsubscribe. Currently safe due to mutex ordering,
+// but this guards against future lock-scope reductions.
+func (sm *StateManager) sendEvent(ch chan NodeChangeEvent, event NodeChangeEvent) {
+	defer func() { recover() }()
+	select {
+	case ch <- event:
+	default:
 	}
 }
