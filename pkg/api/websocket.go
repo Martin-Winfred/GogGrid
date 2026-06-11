@@ -23,6 +23,7 @@ type wsHub struct {
 	register   chan *wsClient
 	unregister chan *wsClient
 	stateMgr   *state.StateManager
+	stopCh     chan struct{}
 }
 
 // wsClient single WebSocket connection
@@ -39,6 +40,7 @@ func newWSHub(stateMgr *state.StateManager) *wsHub {
 		register:   make(chan *wsClient),
 		unregister: make(chan *wsClient),
 		stateMgr:   stateMgr,
+		stopCh:     make(chan struct{}),
 	}
 }
 
@@ -51,12 +53,15 @@ func (h *wsHub) Run() {
 	// Forward state changes to broadcast
 	go func() {
 		for event := range ch {
-			// Encode as JSON
 			data, err := json.Marshal(event)
 			if err != nil {
 				continue
 			}
-			h.broadcast <- data
+			select {
+			case h.broadcast <- data:
+			case <-h.stopCh:
+				return
+			}
 		}
 	}()
 
@@ -81,7 +86,17 @@ func (h *wsHub) Run() {
 					delete(h.clients, client)
 				}
 			}
+		case <-h.stopCh:
+			return
 		}
+	}
+}
+
+func (h *wsHub) Stop() {
+	select {
+	case <-h.stopCh:
+	default:
+		close(h.stopCh)
 	}
 }
 

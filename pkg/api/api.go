@@ -57,6 +57,7 @@ func (a *APIServer) Start() error {
 
 // Stop gracefully shuts down
 func (a *APIServer) Stop(ctx context.Context) error {
+	a.wsHub.Stop()
 	return a.srv.Shutdown(ctx)
 }
 
