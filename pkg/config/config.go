@@ -45,6 +45,7 @@ type APIConfig struct {
 	Enabled  bool   `yaml:"enabled"`
 	BindAddr string `yaml:"bind_addr"`
 	Port     int    `yaml:"port"`
+	Token    string `yaml:"token"`
 }
 
 // GossipConfig holds gossip configuration
@@ -99,11 +100,13 @@ func Load(path string) (*Config, error) {
 //   --cluster-name cluster name
 //   --bind         Gossip bind address (ip:port)
 //   --api-bind     API bind address (ip:port)
+//   --api-token    API authentication token
 func ParseFlags(cfg *Config) {
 	configPath := flag.String("config", "", "config file path")
 	clusterName := flag.String("cluster-name", "", "cluster name")
 	bindAddr := flag.String("bind", "", "Gossip bind address (ip:port)")
 	apiBind := flag.String("api-bind", "", "API bind address (ip:port)")
+	apiToken := flag.String("api-token", "", "API authentication token")
 	flag.Parse()
 	if *configPath != "" {
 		loaded, err := Load(*configPath)
@@ -136,10 +139,13 @@ func ParseFlags(cfg *Config) {
 			}
 		}
 	}
+	if *apiToken != "" {
+		cfg.API.Token = *apiToken
+	}
 }
 
 // ApplyEnv overrides config from environment variables
-// GOGGRID_CLUSTER_NAME, GOGGRID_API_PORT
+// GOGGRID_CLUSTER_NAME, GOGGRID_API_PORT, GOGGRID_API_TOKEN
 func ApplyEnv(cfg *Config) {
 	if v := os.Getenv("GOGGRID_CLUSTER_NAME"); v != "" {
 		cfg.Cluster.Name = v
@@ -150,6 +156,9 @@ func ApplyEnv(cfg *Config) {
 		} else {
 			cfg.API.Port = p
 		}
+	}
+	if v := os.Getenv("GOGGRID_API_TOKEN"); v != "" {
+		cfg.API.Token = v
 	}
 }
 

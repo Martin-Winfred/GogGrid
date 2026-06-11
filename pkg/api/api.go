@@ -38,7 +38,7 @@ func New(cfg *config.Config, stateMgr *state.StateManager, store *storage.Storag
 	mux.HandleFunc("/api/nodes/", a.handleNodeDetail) // matches /api/nodes/{id} and /api/nodes/{id}/history
 	mux.HandleFunc("/ws", a.handleWebSocket)
 	// Middleware wrapping
-	handler := loggingMiddleware(corsMiddleware(recoveryMiddleware(mux)))
+	handler := authMiddleware(cfg.API.Token)(loggingMiddleware(corsMiddleware(recoveryMiddleware(mux))))
 	a.srv = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.API.BindAddr, cfg.API.Port),
 		Handler:      handler,
@@ -158,6 +158,13 @@ func (a *APIServer) handleNodeHistory(w http.ResponseWriter, r *http.Request, no
 
 // handleWebSocket handles WebSocket upgrade
 func (a *APIServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	if a.cfg.API.Token != "" {
+		auth := r.Header.Get("Authorization")
+		if !strings.HasPrefix(auth, "Bearer ") || strings.TrimPrefix(auth, "Bearer ") != a.cfg.API.Token {
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
+	}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		slog.Warn("WebSocket upgrade failed", "error", err)
@@ -208,4 +215,23 @@ func recoveryMiddleware(next http.Handler) http.Handler {
 		}()
 		next.ServeHTTP(w, r)
 	})
+}
+
+func authMiddleware(token string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if token == "" || r.URL.Path == "/api/health" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			auth := r.Header.Get("Authorization")
+			if !strings.HasPrefix(auth, "Bearer ") || strings.TrimPrefix(auth, "Bearer ") != token {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				w.Write([]byte(`{"error":"unauthorized"}`))
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
