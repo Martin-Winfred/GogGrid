@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/Martin-Winfred/GogGrid/pkg/models"
@@ -15,6 +16,15 @@ import (
 	"github.com/shirou/gopsutil/v3/load"
 	"github.com/shirou/gopsutil/v3/mem"
 	net3 "github.com/shirou/gopsutil/v3/net"
+)
+
+var (
+	staticOnce      sync.Once
+	cachedHostname  string
+	cachedKernelVer string
+	cachedPlatform  string
+	cachedFamily    string
+	cachedVersion   string
 )
 
 // HostMonitor holds system monitoring data
@@ -43,28 +53,19 @@ type HostMonitor struct {
 
 // GetHostMonitor returns system monitoring data
 func GetHostMonitor() (hostMonitor HostMonitor, err error) {
-	// Get host architecture
+	staticOnce.Do(func() {
+		cachedHostname, _ = os.Hostname()
+		cachedKernelVer, _ = host.KernelVersion()
+		cachedPlatform, cachedFamily, cachedVersion, _ = host.PlatformInformation()
+	})
+
 	hostMonitor.Arch = runtime.GOARCH
-	// Get OS type
 	hostMonitor.OSInfo = runtime.GOOS
-	// Get hostname
-	hostMonitor.Hostname, err = os.Hostname()
-	if err != nil {
-		err = errors.New("can't detect HostInfo")
-		return
-	}
-	// Get kernel version
-	hostMonitor.KernelVer, err = host.KernelVersion()
-	if err != nil {
-		err = errors.New("can not load kernelVerion")
-		return
-	}
-	// Get platform family and version info
-	hostMonitor.Platform, hostMonitor.Family, hostMonitor.Version, err = host.PlatformInformation()
-	if err != nil {
-		err = errors.New("can't load platform version")
-		return
-	}
+	hostMonitor.Hostname = cachedHostname
+	hostMonitor.KernelVer = cachedKernelVer
+	hostMonitor.Platform = cachedPlatform
+	hostMonitor.Family = cachedFamily
+	hostMonitor.Version = cachedVersion
 	// Get overall CPU usage
 	hostMonitor.CPULoad, err = cpu.Percent(time.Second, false)
 	if err != nil {
