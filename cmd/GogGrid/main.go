@@ -18,10 +18,10 @@ import (
 )
 
 func main() {
-	// 1. Load config (defaults → CLI overrides)
+	// 1. Load config (defaults → YAML → env → CLI)
 	cfg := config.DefaultConfig()
-	config.ParseFlags(cfg)
 	config.ApplyEnv(cfg)
+	config.ParseFlags(cfg)
 
 	// 2. Initialize structured logging
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
