@@ -77,14 +77,17 @@ func (h *wsHub) Run() {
 				slog.Info("WebSocket client disconnected", "total", len(h.clients))
 			}
 		case message := <-h.broadcast:
+			var stale []*wsClient
 			for client := range h.clients {
 				select {
 				case client.send <- message:
 				default:
-					// Client too slow, disconnect
 					close(client.send)
-					delete(h.clients, client)
+					stale = append(stale, client)
 				}
+			}
+			for _, client := range stale {
+				delete(h.clients, client)
 			}
 		case <-h.stopCh:
 			return
