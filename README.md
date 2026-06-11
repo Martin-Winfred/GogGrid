@@ -28,6 +28,7 @@
 | 📡 **Gossip Protocol** | Auto-discovery, state propagation, failure detection via [hashicorp/memberlist](https://github.com/hashicorp/memberlist) |
 | 📊 **System Metrics** | CPU, memory, disk, load averages, network I/O per node |
 | 🕐 **LWW Conflict Resolution** | Last-Writer-Wins with scalar version (VectorClock reserved for future fast-sync) |
+| 🔒 **API Token Auth** | Optional Bearer token authentication for REST API and WebSocket |
 | 🌐 **REST API** | Cluster state, node details, time-series history queries |
 | 🔌 **WebSocket Push** | Real-time updates on node state changes |
 | 💾 **SQLite Persistence** | Embedded database, configurable history retention |
@@ -92,6 +93,7 @@ api:
   enabled: true
   bind_addr: "0.0.0.0"
   port: 8080
+  token: ""
 
 gossip:
   sync_interval: 30s
@@ -115,6 +117,7 @@ CLI flags  >  Environment variables  >  YAML file  >  Defaults
 | `--cluster-name` | `MyCluster` | Cluster name |
 | `--bind` | `0.0.0.0:7946` | Gossip bind address |
 | `--api-bind` | `0.0.0.0:8080` | API bind address |
+| `--api-token` | — | API authentication token (empty = no auth) |
 
 ### Environment Variables
 
@@ -122,6 +125,7 @@ CLI flags  >  Environment variables  >  YAML file  >  Defaults
 |----------|-----------|
 | `GOGGRID_CLUSTER_NAME` | `cluster.name` |
 | `GOGGRID_API_PORT` | `api.port` |
+| `GOGGRID_API_TOKEN` | `api.token` |
 
 ## API Reference
 
