@@ -3,6 +3,7 @@ package config
 import (
 	"flag"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"strconv"
@@ -106,8 +107,10 @@ func ParseFlags(cfg *Config) {
 	flag.Parse()
 	if *configPath != "" {
 		loaded, err := Load(*configPath)
-		if err == nil {
-			*cfg = *loaded
+		if err != nil {
+			log.Printf("WARNING: failed to load config file %s: %v", *configPath, err)
+		} else {
+			mergeConfig(cfg, loaded)
 		}
 	}
 	if *clusterName != "" {
@@ -135,5 +138,42 @@ func ApplyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("GOGGRID_API_PORT"); v != "" {
 		fmt.Sscanf(v, "%d", &cfg.API.Port)
+	}
+}
+
+func mergeConfig(dst, src *Config) {
+	if src.Cluster.Name != "" {
+		dst.Cluster.Name = src.Cluster.Name
+	}
+	if src.Cluster.BindAddr != "" {
+		dst.Cluster.BindAddr = src.Cluster.BindAddr
+	}
+	if src.Cluster.BindPort != 0 {
+		dst.Cluster.BindPort = src.Cluster.BindPort
+	}
+	if len(src.Cluster.Seeds) > 0 {
+		dst.Cluster.Seeds = src.Cluster.Seeds
+	}
+	if src.Monitor.Interval != 0 {
+		dst.Monitor.Interval = src.Monitor.Interval
+	}
+	if src.Storage.DBPath != "" {
+		dst.Storage.DBPath = src.Storage.DBPath
+	}
+	if src.Storage.Retention != 0 {
+		dst.Storage.Retention = src.Storage.Retention
+	}
+	dst.API.Enabled = src.API.Enabled
+	if src.API.BindAddr != "" {
+		dst.API.BindAddr = src.API.BindAddr
+	}
+	if src.API.Port != 0 {
+		dst.API.Port = src.API.Port
+	}
+	if src.Gossip.SyncInterval != 0 {
+		dst.Gossip.SyncInterval = src.Gossip.SyncInterval
+	}
+	if src.Gossip.ProbeInterval != 0 {
+		dst.Gossip.ProbeInterval = src.Gossip.ProbeInterval
 	}
 }
