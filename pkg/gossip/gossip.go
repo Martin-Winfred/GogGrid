@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand"
-	"sync"
 	"time"
 
 	"github.com/hashicorp/memberlist"
@@ -15,7 +14,6 @@ import (
 
 // GossipManager manages memberlist communication
 type GossipManager struct {
-	mu        sync.RWMutex
 	list      *memberlist.Memberlist
 	stateMgr  *state.StateManager
 	cfg       *config.Config
