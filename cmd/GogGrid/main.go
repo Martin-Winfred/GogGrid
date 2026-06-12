@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -25,21 +26,31 @@ func main() {
 	bindAddr := flag.String("bind", "", "Gossip bind address (ip:port)")
 	apiBind := flag.String("api-bind", "", "API bind address (ip:port)")
 	apiToken := flag.String("api-token", "", "API authentication token")
+	seeds := flag.String("seeds", "", "comma-separated seed node addresses")
+	discoveryEnabled := flag.String("discovery-enabled", "", "enable auto-discovery (true/false)")
+	discoveryType := flag.String("discovery-type", "", "discovery protocol (udp, mdns)")
+	discoveryPort := flag.String("discovery-port", "", "discovery port")
 	flag.Parse()
 
 	// 1. Load config (defaults → auto goggrid.yaml → env → CLI)
 	cfg := config.DefaultConfig()
 	if *configPath == "" {
 		if _, err := os.Stat("goggrid.yaml"); err == nil {
-			config.LoadConfigFile(cfg, "goggrid.yaml")
+			if err := config.LoadConfigFile(cfg, "goggrid.yaml"); err != nil {
+				fmt.Fprintf(os.Stderr, "config load failed: %v\n", err)
+				os.Exit(1)
+			}
 		} else {
 			config.GenerateDefault("goggrid.yaml")
 		}
 	} else {
-		config.LoadConfigFile(cfg, *configPath)
+		if err := config.LoadConfigFile(cfg, *configPath); err != nil {
+			fmt.Fprintf(os.Stderr, "config load failed: %v\n", err)
+			os.Exit(1)
+		}
 	}
 	config.ApplyEnv(cfg)
-	config.ParseFlags(cfg, *clusterName, *bindAddr, *apiBind, *apiToken)
+	config.ParseFlags(cfg, *clusterName, *bindAddr, *apiBind, *apiToken, *seeds, *discoveryEnabled, *discoveryType, *discoveryPort)
 
 	// 2. Initialize structured logging
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -88,7 +99,7 @@ func main() {
 
 	// 7. Start API service
 	var apiSrv *api.APIServer
-	if cfg.API.Enabled {
+	if *cfg.API.Enabled {
 		apiSrv = api.New(cfg, stateMgr, store)
 		go func() {
 			if err := apiSrv.Start(); err != nil {
@@ -101,6 +112,10 @@ func main() {
 	// 8. Start monitoring loop
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Start background CPU sampler so GetHostMonitor() does not block
+	monitor.StartCPUSampler(ctx, cfg.Monitor.Interval)
+
 	go monitorLoop(ctx, cfg, nodeID, stateMgr, gossipMgr, store)
 
 	// 9. Start periodic cleanup loop

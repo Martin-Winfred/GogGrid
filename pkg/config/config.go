@@ -1,11 +1,13 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -13,11 +15,12 @@ import (
 
 // Config holds application configuration
 type Config struct {
-	Cluster ClusterConfig `yaml:"cluster"`
-	Monitor MonitorConfig `yaml:"monitor"`
-	Storage StorageConfig `yaml:"storage"`
-	API     APIConfig     `yaml:"api"`
-	Gossip  GossipConfig  `yaml:"gossip"`
+	Cluster   ClusterConfig   `yaml:"cluster"`
+	Monitor   MonitorConfig   `yaml:"monitor"`
+	Storage   StorageConfig   `yaml:"storage"`
+	API       APIConfig       `yaml:"api"`
+	Gossip    GossipConfig    `yaml:"gossip"`
+	Discovery DiscoveryConfig `yaml:"discovery"`
 }
 
 // ClusterConfig holds cluster configuration
@@ -41,7 +44,7 @@ type StorageConfig struct {
 
 // APIConfig holds API configuration
 type APIConfig struct {
-	Enabled  bool   `yaml:"enabled"`
+	Enabled  *bool  `yaml:"enabled"`
 	BindAddr string `yaml:"bind_addr"`
 	Port     int    `yaml:"port"`
 	Token    string `yaml:"token"`
@@ -52,6 +55,17 @@ type GossipConfig struct {
 	SyncInterval  time.Duration `yaml:"sync_interval"`
 	ProbeInterval time.Duration `yaml:"probe_interval"`
 }
+
+// DiscoveryConfig holds node auto-discovery configuration
+type DiscoveryConfig struct {
+	Enabled  bool          `yaml:"enabled"`
+	Type     string        `yaml:"type"`
+	Port     int           `yaml:"port"`
+	Interval time.Duration `yaml:"interval"`
+}
+
+// boolPtr returns a pointer to a bool value
+func boolPtr(b bool) *bool { return &b }
 
 // DefaultConfig returns config with default values
 func DefaultConfig() *Config {
@@ -69,13 +83,19 @@ func DefaultConfig() *Config {
 			Retention: 168 * time.Hour,
 		},
 		API: APIConfig{
-			Enabled:  true,
+			Enabled:  boolPtr(true),
 			BindAddr: "0.0.0.0",
 			Port:     8080,
 		},
 		Gossip: GossipConfig{
 			SyncInterval:  30 * time.Second,
 			ProbeInterval: 5 * time.Second,
+		},
+		Discovery: DiscoveryConfig{
+			Enabled:  true,
+			Type:     "udp",
+			Port:     7947,
+			Interval: 3 * time.Second,
 		},
 	}
 }
@@ -94,22 +114,27 @@ func Load(path string) (*Config, error) {
 }
 
 // LoadConfigFile loads and merges YAML configuration onto cfg.
+// Returns error on YAML parse failure; warns and returns nil if the file is not found.
 // If configPath is empty, this is a no-op.
-func LoadConfigFile(cfg *Config, configPath string) {
+func LoadConfigFile(cfg *Config, configPath string) error {
 	if configPath == "" {
-		return
+		return nil
 	}
 	loaded, err := Load(configPath)
 	if err != nil {
-		log.Printf("WARNING: failed to load config file %s: %v", configPath, err)
-		return
+		if errors.Is(err, os.ErrNotExist) {
+			log.Printf("WARNING: config file not found %s, using defaults", configPath)
+			return nil
+		}
+		return fmt.Errorf("failed to load config file %s: %w", configPath, err)
 	}
 	mergeConfig(cfg, loaded)
+	return nil
 }
 
 // ParseFlags applies CLI flag overrides to cfg.
 // Flags must have been registered and flag.Parse() called by the caller.
-func ParseFlags(cfg *Config, clusterName, bindAddr, apiBind, apiToken string) {
+func ParseFlags(cfg *Config, clusterName, bindAddr, apiBind, apiToken, seeds, discoveryEnabled, discoveryType, discoveryPort string) {
 	if clusterName != "" {
 		cfg.Cluster.Name = clusterName
 	}
@@ -136,10 +161,29 @@ func ParseFlags(cfg *Config, clusterName, bindAddr, apiBind, apiToken string) {
 	if apiToken != "" {
 		cfg.API.Token = apiToken
 	}
+	if seeds != "" {
+		cfg.Cluster.Seeds = splitSeeds(seeds)
+	}
+	if discoveryEnabled != "" {
+		if b, err := strconv.ParseBool(discoveryEnabled); err != nil {
+			log.Printf("WARNING: invalid --discovery-enabled %q: %v", discoveryEnabled, err)
+		} else {
+			cfg.Discovery.Enabled = b
+		}
+	}
+	if discoveryType != "" {
+		cfg.Discovery.Type = discoveryType
+	}
+	if discoveryPort != "" {
+		if p, err := strconv.Atoi(discoveryPort); err != nil {
+			log.Printf("WARNING: invalid --discovery-port %q: %v", discoveryPort, err)
+		} else {
+			cfg.Discovery.Port = p
+		}
+	}
 }
 
 // ApplyEnv overrides config from environment variables
-// GOGGRID_CLUSTER_NAME, GOGGRID_API_PORT, GOGGRID_API_TOKEN
 func ApplyEnv(cfg *Config) {
 	if v := os.Getenv("GOGGRID_CLUSTER_NAME"); v != "" {
 		cfg.Cluster.Name = v
@@ -153,6 +197,26 @@ func ApplyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("GOGGRID_API_TOKEN"); v != "" {
 		cfg.API.Token = v
+	}
+	if v := os.Getenv("GOGGRID_SEEDS"); v != "" {
+		cfg.Cluster.Seeds = splitSeeds(v)
+	}
+	if v := os.Getenv("GOGGRID_DISCOVERY_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err != nil {
+			log.Printf("WARNING: invalid GOGGRID_DISCOVERY_ENABLED %q: %v", v, err)
+		} else {
+			cfg.Discovery.Enabled = b
+		}
+	}
+	if v := os.Getenv("GOGGRID_DISCOVERY_TYPE"); v != "" {
+		cfg.Discovery.Type = v
+	}
+	if v := os.Getenv("GOGGRID_DISCOVERY_PORT"); v != "" {
+		if p, err := strconv.Atoi(v); err != nil {
+			log.Printf("WARNING: invalid GOGGRID_DISCOVERY_PORT %q: %v", v, err)
+		} else {
+			cfg.Discovery.Port = p
+		}
 	}
 }
 
@@ -178,7 +242,9 @@ func mergeConfig(dst, src *Config) {
 	if src.Storage.Retention != 0 {
 		dst.Storage.Retention = src.Storage.Retention
 	}
-	dst.API.Enabled = src.API.Enabled
+	if src.API.Enabled != nil {
+		*dst.API.Enabled = *src.API.Enabled
+	}
 	if src.API.BindAddr != "" {
 		dst.API.BindAddr = src.API.BindAddr
 	}
@@ -194,6 +260,30 @@ func mergeConfig(dst, src *Config) {
 	if src.Gossip.ProbeInterval != 0 {
 		dst.Gossip.ProbeInterval = src.Gossip.ProbeInterval
 	}
+	if src.Discovery.Type != "" {
+		dst.Discovery.Type = src.Discovery.Type
+	}
+	if src.Discovery.Port != 0 {
+		dst.Discovery.Port = src.Discovery.Port
+	}
+	if src.Discovery.Interval != 0 {
+		dst.Discovery.Interval = src.Discovery.Interval
+	}
+	dst.Discovery.Enabled = src.Discovery.Enabled
+}
+
+// splitSeeds splits a comma-separated seed string into a slice,
+// trimming whitespace and omitting empty entries.
+func splitSeeds(s string) []string {
+	parts := strings.Split(s, ",")
+	var result []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			result = append(result, p)
+		}
+	}
+	return result
 }
 
 // GenerateDefault writes a default configuration template to path.
@@ -228,6 +318,12 @@ api:
 gossip:
   sync_interval: %s
   probe_interval: %s
+
+discovery:
+  enabled: %t
+  type: "%s"
+  port: %d
+  interval: %s
 `,
 		cfg.Cluster.Name,
 		cfg.Cluster.BindAddr,
@@ -235,11 +331,15 @@ gossip:
 		cfg.Monitor.Interval,
 		cfg.Storage.DBPath,
 		cfg.Storage.Retention,
-		cfg.API.Enabled,
+		*cfg.API.Enabled,
 		cfg.API.BindAddr,
 		cfg.API.Port,
 		cfg.Gossip.SyncInterval,
 		cfg.Gossip.ProbeInterval,
+		cfg.Discovery.Enabled,
+		cfg.Discovery.Type,
+		cfg.Discovery.Port,
+		cfg.Discovery.Interval,
 	)
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
