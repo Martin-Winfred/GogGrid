@@ -181,4 +181,7 @@ func TestMessageTypeConstants(t *testing.T) {
 	if MsgHeartbeat != 2 {
 		t.Error("MsgHeartbeat should be 2")
 	}
+	if MsgDiscovery != 3 {
+		t.Errorf("MsgDiscovery = %d, want 3", MsgDiscovery)
+	}
 }

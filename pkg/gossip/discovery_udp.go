@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/Martin-Winfred/GogGrid/pkg/config"
@@ -40,6 +41,11 @@ func (d *udpDiscovery) Start(gm *GossipManager) error {
 		gm.list.LocalNode().Addr.String(),
 		fmt.Sprintf("%d", gm.list.LocalNode().Port),
 	)
+
+	// Validate localAddr is not a zero address that peers cannot route to
+	if strings.HasPrefix(d.localAddr, "0.0.0.0:") || strings.HasPrefix(d.localAddr, "[::]:") || strings.HasPrefix(d.localAddr, ":") {
+		return fmt.Errorf("udp discovery: invalid local address %q, cannot advertise to peers", d.localAddr)
+	}
 
 	addr := &net.UDPAddr{IP: net.IPv4zero, Port: d.cfg.Port}
 	conn, err := net.ListenUDP("udp", addr)

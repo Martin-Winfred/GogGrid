@@ -43,7 +43,7 @@ func StartCPUSampler(ctx context.Context, interval time.Duration) {
 
 		// Collect first sample immediately so there is data available
 		// on the very first GetHostMonitor() call.
-		samples, err := cpu.Percent(interval, false)
+		samples, err := cpu.Percent(0, false)
 		if err == nil {
 			cpuMu.Lock()
 			cpuPercentCache = samples
@@ -55,7 +55,7 @@ func StartCPUSampler(ctx context.Context, interval time.Duration) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				samples, err := cpu.Percent(interval, false)
+				samples, err := cpu.Percent(0, false)
 				if err != nil {
 					continue
 				}
