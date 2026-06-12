@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -149,5 +151,63 @@ func TestCleanOldRecords(t *testing.T) {
 	records, _ := s.GetNodeHistory("n1", time.Time{}, time.Time{})
 	if len(records) != 1 {
 		t.Errorf("records after cleanup = %d, want 1", len(records))
+	}
+}
+
+// TestConcurrentReadWrite verifies concurrent reads and writes do not deadlock
+// or produce "database is locked" errors when WAL mode and busy_timeout are enabled
+func TestConcurrentReadWrite(t *testing.T) {
+	// Use a file-based DB so WAL mode is effective
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	s, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("storage create failed: %v", err)
+	}
+	defer s.Close()
+
+	now := time.Now()
+	var wg sync.WaitGroup
+	writeErrs := make([]error, 0, 20)
+	readErrs := make([]error, 0, 20)
+	var mu sync.Mutex
+
+	// Writer goroutine: save node states in a loop
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := range 20 {
+			ns := &models.NodeState{
+				NodeID: "concurrent-node", CPUUsage: float64(i),
+				LastSeen: now, LastUpdated: now,
+			}
+			if err := s.SaveNodeState(ns); err != nil {
+				mu.Lock()
+				writeErrs = append(writeErrs, err)
+				mu.Unlock()
+			}
+		}
+	}()
+
+	// Reader goroutine: read node states in a loop
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for range 20 {
+			if _, err := s.GetNodeState("concurrent-node"); err != nil {
+				mu.Lock()
+				readErrs = append(readErrs, err)
+				mu.Unlock()
+			}
+		}
+	}()
+
+	wg.Wait()
+
+	if len(writeErrs) > 0 {
+		t.Errorf("write errors: %v", writeErrs)
+	}
+	if len(readErrs) > 0 {
+		t.Errorf("read errors: %v", readErrs)
 	}
 }

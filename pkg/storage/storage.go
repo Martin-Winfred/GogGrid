@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/Martin-Winfred/GogGrid/pkg/models"
@@ -32,6 +33,15 @@ func New(dbPath string) (*Storage, error) {
 		return nil, err
 	}
 	sqlDB.SetMaxOpenConns(1)
+
+	// Enable WAL mode for concurrent reads during writes
+	if _, err := sqlDB.Exec("PRAGMA journal_mode=WAL;"); err != nil {
+		return nil, fmt.Errorf("enable WAL mode: %w", err)
+	}
+	// Set busy timeout so SQLite waits 5s instead of immediately failing
+	if _, err := sqlDB.Exec("PRAGMA busy_timeout=5000;"); err != nil {
+		return nil, fmt.Errorf("set busy timeout: %w", err)
+	}
 
 	return &Storage{db: db}, nil
 }
