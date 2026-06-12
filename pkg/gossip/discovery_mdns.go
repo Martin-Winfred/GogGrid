@@ -121,11 +121,11 @@ func (d *mdnsDiscovery) browseLoop(ctx context.Context) {
 		params := &mdns.QueryParam{
 			Service: "_goggrid._tcp",
 			Domain:  "local",
-			Timeout: 10 * time.Second,
+			Timeout: 5 * time.Second,
 			Entries: entriesCh,
 		}
 
-		if err := mdns.Query(params); err != nil {
+		if err := mdns.QueryContext(ctx, params); err != nil {
 			slog.Warn("mdns discovery: query failed", "error", err)
 		}
 
