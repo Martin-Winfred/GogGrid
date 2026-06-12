@@ -4,6 +4,7 @@ go 1.26
 
 require (
 	github.com/gorilla/websocket v1.5.3
+	github.com/hashicorp/mdns v1.0.6
 	github.com/hashicorp/memberlist v0.5.4
 	github.com/shirou/gopsutil/v3 v3.23.6
 	github.com/vmihailenco/msgpack/v5 v5.4.1

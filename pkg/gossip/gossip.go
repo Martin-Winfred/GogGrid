@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/memberlist"
 	"github.com/Martin-Winfred/GogGrid/pkg/config"
 	"github.com/Martin-Winfred/GogGrid/pkg/models"
+	"github.com/Martin-Winfred/GogGrid/pkg/monitor"
 	"github.com/Martin-Winfred/GogGrid/pkg/state"
 )
 
@@ -20,6 +21,7 @@ type GossipManager struct {
 	localNode string
 	stopCh    chan struct{}
 	broadcast *memberlist.TransmitLimitedQueue
+	discovery Discovery // auto-discovery mechanism
 }
 
 // New creates a GossipManager
@@ -41,6 +43,15 @@ func New(cfg *config.Config, stateMgr *state.StateManager) (*GossipManager, erro
 	mlCfg.BindPort = cfg.Cluster.BindPort
 	mlCfg.AdvertiseAddr = cfg.Cluster.BindAddr
 	mlCfg.AdvertisePort = cfg.Cluster.BindPort
+	// Auto-detect outbound IP when bind is 0.0.0.0 or empty
+	if mlCfg.AdvertiseAddr == "" || mlCfg.AdvertiseAddr == "0.0.0.0" {
+		if ip, err := monitor.GetLocalIP(); err != nil {
+			slog.Warn("failed to detect outbound IP, AdvertiseAddr remains 0.0.0.0", "error", err)
+		} else {
+			mlCfg.AdvertiseAddr = ip
+			slog.Info("auto-detected AdvertiseAddr", "addr", ip)
+		}
+	}
 	mlCfg.ProbeInterval = cfg.Gossip.ProbeInterval
 	mlCfg.PushPullInterval = cfg.Gossip.SyncInterval
 	mlCfg.Delegate = &goggridDelegate{gm: gm}
@@ -73,7 +84,24 @@ func (g *GossipManager) Start() error {
 			slog.Info("cluster join succeeded", "joined", n, "seeds", seeds)
 		}
 	} else {
-		slog.Info("no seed nodes, running as standalone")
+		slog.Info("no seed nodes, relying on auto-discovery")
+	}
+
+	// Start auto-discovery if enabled
+	if g.cfg.Discovery.Enabled {
+		switch g.cfg.Discovery.Type {
+		case "udp":
+			g.discovery = newUDPDiscovery(g.cfg.Discovery, g.cfg.Cluster.Name)
+		case "mdns":
+			g.discovery = newMDNSDiscovery(g.cfg.Discovery, g.cfg.Cluster.Name)
+		default:
+			slog.Warn("unknown discovery type, defaulting to udp", "type", g.cfg.Discovery.Type)
+			g.discovery = newUDPDiscovery(g.cfg.Discovery, g.cfg.Cluster.Name)
+		}
+		if err := g.discovery.Start(g); err != nil {
+			slog.Warn("failed to start discovery", "error", err)
+			g.discovery = nil
+		}
 	}
 
 	// Start anti-entropy loop
@@ -84,11 +112,23 @@ func (g *GossipManager) Start() error {
 
 // Stop stops gossip
 func (g *GossipManager) Stop() error {
-	close(g.stopCh)
-	if err := g.list.Leave(5 * time.Second); err != nil {
-		slog.Warn("cluster leave failed", "error", err)
+	// Stop discovery first
+	if g.discovery != nil {
+		if err := g.discovery.Stop(); err != nil {
+			slog.Warn("discovery stop error", "error", err)
+		}
+		g.discovery = nil
 	}
-	return g.list.Shutdown()
+
+	slog.Info("leaving cluster")
+	if err := g.list.Leave(5 * time.Second); err != nil {
+		slog.Warn("leave error", "error", err)
+	}
+	if err := g.list.Shutdown(); err != nil {
+		return fmt.Errorf("shutdown: %w", err)
+	}
+	close(g.stopCh)
+	return nil
 }
 
 // BroadcastLocalState broadcasts local node state
