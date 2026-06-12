@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -24,7 +25,47 @@ var (
 	cachedPlatform  string
 	cachedFamily    string
 	cachedVersion   string
+
+	// cpuPercentCache holds the most recent CPU utilization(s) collected
+	// by the background sampler goroutine started via StartCPUSampler.
+	cpuPercentCache []float64
+	cpuMu           sync.RWMutex
 )
+
+// StartCPUSampler launches a background goroutine that periodically
+// samples CPU utilization and caches the result. This allows
+// GetHostMonitor() to return immediately without blocking on cpu.Percent.
+// Call ctx cancel to stop the sampler.
+func StartCPUSampler(ctx context.Context, interval time.Duration) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		// Collect first sample immediately so there is data available
+		// on the very first GetHostMonitor() call.
+		samples, err := cpu.Percent(interval, false)
+		if err == nil {
+			cpuMu.Lock()
+			cpuPercentCache = samples
+			cpuMu.Unlock()
+		}
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				samples, err := cpu.Percent(interval, false)
+				if err != nil {
+					continue
+				}
+				cpuMu.Lock()
+				cpuPercentCache = samples
+				cpuMu.Unlock()
+			}
+		}
+	}()
+}
 
 // HostMonitor holds system monitoring data
 type HostMonitor struct {
@@ -65,12 +106,13 @@ func GetHostMonitor() (hostMonitor HostMonitor, err error) {
 	hostMonitor.Platform = cachedPlatform
 	hostMonitor.Family = cachedFamily
 	hostMonitor.Version = cachedVersion
-	// Get overall CPU usage
-	hostMonitor.CPULoad, err = cpu.Percent(time.Second, false)
-	if err != nil {
-		err = fmt.Errorf("unable to get CPU load per sec: %w", err)
-		return
+	// Get overall CPU usage from background sampler cache
+	cpuMu.RLock()
+	if len(cpuPercentCache) > 0 {
+		hostMonitor.CPULoad = make([]float64, len(cpuPercentCache))
+		copy(hostMonitor.CPULoad, cpuPercentCache)
 	}
+	cpuMu.RUnlock()
 	// Get memory info and usage percentage
 	memInfo, err := mem.VirtualMemory()
 	if err != nil {
@@ -97,7 +139,7 @@ func GetHostMonitor() (hostMonitor HostMonitor, err error) {
 	hostMonitor.BytesSent = totalBytesSent
 
 	// Get local IP address
-	hostMonitor.LocalIP, err = getLocalIP()
+	hostMonitor.LocalIP, err = GetLocalIP()
 	if err != nil {
 		err = fmt.Errorf("unable to get local IP: %w", err)
 		return
@@ -127,8 +169,8 @@ func GetHostMonitor() (hostMonitor HostMonitor, err error) {
 	return hostMonitor, nil
 }
 
-// getLocalIP returns the local outbound IP address
-func getLocalIP() (string, error) {
+// GetLocalIP returns the local outbound IP address
+func GetLocalIP() (string, error) {
 	conn, err := net.Dial("udp", "8.8.8.8:80")
 	if err != nil {
 		return "", fmt.Errorf("failed to dial: %w", err)

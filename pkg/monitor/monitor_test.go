@@ -1,26 +1,33 @@
 package monitor
 
 import (
+	"context"
 	"testing"
+	"time"
 )
 
-// TestGetLocalIP verifies getLocalIP returns a valid IP address without error
+// TestGetLocalIP verifies GetLocalIP returns a valid IP address without error
 func TestGetLocalIP(t *testing.T) {
-	ip, err := getLocalIP()
+	ip, err := GetLocalIP()
 	if err != nil {
-		t.Fatalf("getLocalIP() returned error: %v", err)
+		t.Fatalf("GetLocalIP() returned error: %v", err)
 	}
 	if ip == "" {
-		t.Fatal("getLocalIP() returned empty string")
+		t.Fatal("GetLocalIP() returned empty string")
 	}
 	// Simple IP format check: must contain "."
 	if len(ip) < 7 {
-		t.Fatalf("getLocalIP() returned unexpected short string: %q", ip)
+		t.Fatalf("GetLocalIP() returned unexpected short string: %q", ip)
 	}
 }
 
 // TestGetHostMonitor verifies GetHostMonitor returns complete monitoring data without error
 func TestGetHostMonitor(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	StartCPUSampler(ctx, 100*time.Millisecond)
+	time.Sleep(200 * time.Millisecond) // wait for first sample
+
 	hm, err := GetHostMonitor()
 	if err != nil {
 		t.Fatalf("GetHostMonitor() returned error: %v", err)
@@ -133,5 +140,34 @@ func TestToNodeState(t *testing.T) {
 	}
 	if ns.Version != 1 {
 		t.Errorf("NodeState.Version = %d, want %d", ns.Version, 1)
+	}
+}
+
+// TestGetHostMonitorNonBlocking verifies that after StartCPUSampler has
+// collected the first sample, GetHostMonitor returns well under 500ms
+// (proving it does not block on cpu.Percent).
+func TestGetHostMonitorNonBlocking(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Start background sampler with a short interval; it samples
+	// immediately on launch.
+	StartCPUSampler(ctx, 100*time.Millisecond)
+
+	// Wait for the first sample to be collected
+	time.Sleep(200 * time.Millisecond)
+
+	start := time.Now()
+	hm, err := GetHostMonitor()
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("GetHostMonitor() returned error: %v", err)
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Errorf("GetHostMonitor() took %v, expected < 500ms (blocking CPU read)", elapsed)
+	}
+	if len(hm.CPULoad) == 0 {
+		t.Error("GetHostMonitor().CPULoad is empty, expected cached values")
 	}
 }
