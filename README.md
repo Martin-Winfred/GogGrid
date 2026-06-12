@@ -8,7 +8,7 @@
 <h1 align="center">GogGrid</h1>
 
 <p align="center">
-  <b>Decentralized Cluster Monitoring · Zero Central Server · Gossip-Powered</b>
+  <b>Decentralized Cluster Monitoring · No dedicated central coordinator · Gossip-Powered</b>
 </p>
 
 <p align="center">
@@ -19,13 +19,29 @@
 
 ---
 
+## System Scope
+
+GogGrid is designed for **small trusted networks (LAN / homelab environments)** with tens to low hundreds of nodes.
+
+It focuses on:
+
+- Node discovery within a local network
+- Best-effort state synchronization via gossip
+- Lightweight system monitoring aggregation
+
+It does **not** aim to provide:
+
+- Strong consistency guarantees
+- Large-scale distributed coordination
+- Multi-region or WAN-optimized replication
 
 ## Features
 
 | Feature | Detail |
 |---------|--------|
 | 🔄 **Decentralized** | Every node holds full cluster state — no single point of failure |
-| 📡 **Gossip Protocol** | Auto-discovery, state propagation, failure detection via [hashicorp/memberlist](https://github.com/hashicorp/memberlist) |
+| 📡 **Gossip Protocol** | State propagation, failure detection, anti-entropy via [hashicorp/memberlist](https://github.com/hashicorp/memberlist) |
+| 🔍 **Auto-Discovery** | Pluggable node discovery — UDP broadcast or mDNS (LAN); cluster-name filtering + dedup |
 | 📊 **System Metrics** | CPU, memory, disk, load averages, network I/O per node |
 | 🕐 **LWW Conflict Resolution** | Last-Writer-Wins with scalar version (VectorClock reserved for future fast-sync) |
 | 🔒 **API Token Auth** | Optional Bearer token authentication for REST API and WebSocket |
@@ -60,15 +76,30 @@ go build -o goggrid ./cmd/GogGrid
   --api-bind 0.0.0.0:8080
 ```
 
-**Join an existing cluster:**
+**Join an existing cluster** (via seeds or auto-discovery):
 
 ```bash
+# Option 1: join via seed nodes
 ./goggrid \
   --cluster-name MyCluster \
   --bind 0.0.0.0:7947 \
   --api-bind 0.0.0.0:8081 \
-  --config config.yaml
+  --seeds 10.0.0.1:7946
+
+# Option 2: auto-discover peers on LAN (UDP broadcast — default)
+./goggrid \
+  --cluster-name MyCluster \
+  --bind 0.0.0.0:7947 \
+  --api-bind 0.0.0.0:8081
+
+# Option 3: mDNS discovery (LAN multicast DNS)
+./goggrid \
+  --cluster-name MyCluster \
+  --bind 0.0.0.0:7947 \
+  --discovery-type mdns
 ```
+
+> **Note**: On first run without `--config`, GogGrid auto-generates a `goggrid.yaml` with defaults. Edit and restart to customize.
 
 <details>
 <summary>Example <code>config.yaml</code></summary>
@@ -98,6 +129,12 @@ api:
 gossip:
   sync_interval: 30s
   probe_interval: 5s
+
+discovery:
+  enabled: true
+  type: "udp"
+  port: 7947
+  interval: 3s
 ```
 </details>
 
@@ -118,14 +155,24 @@ CLI flags  >  Environment variables  >  YAML file  >  Defaults
 | `--bind` | `0.0.0.0:7946` | Gossip bind address |
 | `--api-bind` | `0.0.0.0:8080` | API bind address |
 | `--api-token` | — | API authentication token (empty = no auth) |
+| `--seeds` | — | Comma-separated seed node addresses |
+| `--discovery-enabled` | `true` | Enable auto-discovery (`true`/`false`) |
+| `--discovery-type` | `udp` | Discovery protocol (`udp`, `mdns`) |
+| `--discovery-port` | `7947` | Discovery port |
+| `--discovery-interval` | `3s` | Discovery broadcast interval (e.g. `3s`, `5s`) |
 
 ### Environment Variables
 
 | Variable | Overrides |
 |----------|-----------|
 | `GOGGRID_CLUSTER_NAME` | `cluster.name` |
+| `GOGGRID_SEEDS` | `cluster.seeds` (comma-separated) |
 | `GOGGRID_API_PORT` | `api.port` |
 | `GOGGRID_API_TOKEN` | `api.token` |
+| `GOGGRID_DISCOVERY_ENABLED` | `discovery.enabled` |
+| `GOGGRID_DISCOVERY_TYPE` | `discovery.type` |
+| `GOGGRID_DISCOVERY_PORT` | `discovery.port` |
+| `GOGGRID_DISCOVERY_INTERVAL` | `discovery.interval` |
 
 ## API Reference
 
@@ -208,7 +255,10 @@ pkg/
 ├── config/config.go         YAML + CLI + env vars
 ├── gossip/                  Memberlist-based gossip
 │   ├── gossip.go            GossipManager + Delegate
-│   └── message.go           Msgpack message types
+│   ├── message.go           Msgpack message types
+│   ├── discovery.go         Discovery interface + dedup logic
+│   ├── discovery_udp.go     UDP broadcast discovery
+│   └── discovery_mdns.go    mDNS LAN discovery
 ├── models/models.go         Shared types + VectorClock
 ├── monitor/monitor.go       System metrics (gopsutil)
 ├── state/state.go           In-memory cluster state + LWW
@@ -233,7 +283,8 @@ go build -o goggrid ./cmd/GogGrid
 | Layer | Library | Purpose |
 |-------|---------|---------|
 | Metrics | [gopsutil](https://github.com/shirou/gopsutil) | CPU, memory, disk, load, network |
-| Gossip | [memberlist](https://github.com/hashicorp/memberlist) | Node discovery + state propagation |
+| Gossip | [memberlist](https://github.com/hashicorp/memberlist) | Node membership + state propagation |
+| Discovery | [mdns](https://github.com/hashicorp/mdns) | mDNS LAN auto-discovery |
 | Serialization | [msgpack](https://github.com/vmihailenco/msgpack) | Efficient binary encoding |
 | Database | [GORM](https://gorm.io) + SQLite | Embedded persistence |
 | WebSocket | [gorilla/websocket](https://github.com/gorilla/websocket) | Real-time push |
