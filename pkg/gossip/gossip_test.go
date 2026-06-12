@@ -139,6 +139,38 @@ func TestMapToSlice(t *testing.T) {
 	}
 }
 
+func TestDiscoveryMessageRoundtrip(t *testing.T) {
+	original := &DiscoveryMessage{
+		NodeID:      "node-discovery-1",
+		ClusterName: "TestCluster",
+		GossipAddr:  "192.168.1.10:7946",
+		Timestamp:   int64(1712345678000000000),
+	}
+
+	payload, err := EncodePayload(original)
+	if err != nil {
+		t.Fatalf("encode failed: %v", err)
+	}
+
+	var decoded DiscoveryMessage
+	if err := DecodePayload(payload, &decoded); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+
+	if decoded.NodeID != original.NodeID {
+		t.Errorf("NodeID expected %s, got %s", original.NodeID, decoded.NodeID)
+	}
+	if decoded.ClusterName != original.ClusterName {
+		t.Errorf("ClusterName expected %s, got %s", original.ClusterName, decoded.ClusterName)
+	}
+	if decoded.GossipAddr != original.GossipAddr {
+		t.Errorf("GossipAddr expected %s, got %s", original.GossipAddr, decoded.GossipAddr)
+	}
+	if decoded.Timestamp != original.Timestamp {
+		t.Errorf("Timestamp expected %d, got %d", original.Timestamp, decoded.Timestamp)
+	}
+}
+
 func TestMessageTypeConstants(t *testing.T) {
 	if MsgNodeState != 0 {
 		t.Error("MsgNodeState should be 0")

@@ -12,6 +12,7 @@ const (
 	MsgNodeState   = 0 // node state update
 	MsgClusterSync = 1 // cluster full sync
 	MsgHeartbeat   = 2 // heartbeat
+	MsgDiscovery   = 3 // discovery broadcast
 )
 
 // GossipMessage is a generic message wrapper
@@ -30,6 +31,13 @@ type NodeStatePayload struct {
 // ClusterSyncPayload carries full cluster sync data
 type ClusterSyncPayload struct {
 	Nodes []*models.NodeState `msgpack:"nodes"`
+}
+
+type DiscoveryMessage struct {
+	NodeID      string `msgpack:"node_id"`
+	ClusterName string `msgpack:"cluster_name"`
+	GossipAddr  string `msgpack:"gossip_addr"`
+	Timestamp   int64  `msgpack:"ts"`
 }
 
 // EncodeMessage encodes a GossipMessage
