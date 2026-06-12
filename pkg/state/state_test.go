@@ -173,6 +173,27 @@ func TestMarkNodeInactive(t *testing.T) {
 	}
 }
 
+func TestMarkNodeInactiveDeepCopy(t *testing.T) {
+	sm := NewStateManager("Test", "local1")
+	sm.UpdateLocalNode(makeNodeState("local1", 1, 50.0, time.Now()))
+	sm.MarkNodeInactive("local1")
+
+	ns, ok := sm.GetNode("local1")
+	if !ok {
+		t.Fatal("node should exist")
+	}
+	// Mutate the returned copy's Status
+	ns.Status = "active"
+	// Re-fetch and verify internal state is still "inactive"
+	ns2, ok := sm.GetNode("local1")
+	if !ok {
+		t.Fatal("node should exist")
+	}
+	if ns2.Status != "inactive" {
+		t.Errorf("deep copy failed: returned copy mutation affected internal state, got status = %s, want inactive", ns2.Status)
+	}
+}
+
 func TestRemoveNode(t *testing.T) {
 	sm := NewStateManager("Test", "local1")
 	sm.UpdateLocalNode(makeNodeState("local1", 1, 50.0, time.Now()))

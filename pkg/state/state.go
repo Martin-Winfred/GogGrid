@@ -133,12 +133,14 @@ func (sm *StateManager) MarkNodeInactive(nodeID string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	if ns, ok := sm.clusterState.Nodes[nodeID]; ok {
-		ns.Status = "inactive"
+		copyNode := *ns
+		copyNode.Status = "inactive"
+		sm.clusterState.Nodes[nodeID] = &copyNode
 		sm.clusterState.UpdatedAt = time.Now()
 		sm.broadcast(NodeChangeEvent{
 			NodeID:    nodeID,
 			EventType: "leave",
-			NodeState: ns,
+			NodeState: &copyNode,
 		})
 	}
 }
