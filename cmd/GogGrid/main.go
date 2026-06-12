@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -30,6 +31,7 @@ func main() {
 	discoveryEnabled := flag.String("discovery-enabled", "", "enable auto-discovery (true/false)")
 	discoveryType := flag.String("discovery-type", "", "discovery protocol (udp, mdns)")
 	discoveryPort := flag.String("discovery-port", "", "discovery port")
+	discoveryInterval := flag.String("discovery-interval", "", "discovery interval (e.g. 3s, 5s)")
 	flag.Parse()
 
 	// 1. Load config (defaults → auto goggrid.yaml → env → CLI)
@@ -41,7 +43,9 @@ func main() {
 				os.Exit(1)
 			}
 		} else {
-			config.GenerateDefault("goggrid.yaml")
+			if err := config.GenerateDefault("goggrid.yaml"); err != nil {
+				log.Printf("WARNING: failed to generate default config: %v", err)
+			}
 		}
 	} else {
 		if err := config.LoadConfigFile(cfg, *configPath); err != nil {
@@ -50,7 +54,7 @@ func main() {
 		}
 	}
 	config.ApplyEnv(cfg)
-	config.ParseFlags(cfg, *clusterName, *bindAddr, *apiBind, *apiToken, *seeds, *discoveryEnabled, *discoveryType, *discoveryPort)
+	config.ParseFlags(cfg, *clusterName, *bindAddr, *apiBind, *apiToken, *seeds, *discoveryEnabled, *discoveryType, *discoveryPort, *discoveryInterval)
 
 	// 2. Initialize structured logging
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))

@@ -58,7 +58,7 @@ type GossipConfig struct {
 
 // DiscoveryConfig holds node auto-discovery configuration
 type DiscoveryConfig struct {
-	Enabled  bool          `yaml:"enabled"`
+	Enabled  *bool          `yaml:"enabled"`
 	Type     string        `yaml:"type"`
 	Port     int           `yaml:"port"`
 	Interval time.Duration `yaml:"interval"`
@@ -92,7 +92,7 @@ func DefaultConfig() *Config {
 			ProbeInterval: 5 * time.Second,
 		},
 		Discovery: DiscoveryConfig{
-			Enabled:  true,
+			Enabled:  boolPtr(true),
 			Type:     "udp",
 			Port:     7947,
 			Interval: 3 * time.Second,
@@ -134,7 +134,7 @@ func LoadConfigFile(cfg *Config, configPath string) error {
 
 // ParseFlags applies CLI flag overrides to cfg.
 // Flags must have been registered and flag.Parse() called by the caller.
-func ParseFlags(cfg *Config, clusterName, bindAddr, apiBind, apiToken, seeds, discoveryEnabled, discoveryType, discoveryPort string) {
+func ParseFlags(cfg *Config, clusterName, bindAddr, apiBind, apiToken, seeds, discoveryEnabled, discoveryType, discoveryPort, discoveryInterval string) {
 	if clusterName != "" {
 		cfg.Cluster.Name = clusterName
 	}
@@ -168,7 +168,7 @@ func ParseFlags(cfg *Config, clusterName, bindAddr, apiBind, apiToken, seeds, di
 		if b, err := strconv.ParseBool(discoveryEnabled); err != nil {
 			log.Printf("WARNING: invalid --discovery-enabled %q: %v", discoveryEnabled, err)
 		} else {
-			cfg.Discovery.Enabled = b
+			*cfg.Discovery.Enabled = b
 		}
 	}
 	if discoveryType != "" {
@@ -179,6 +179,13 @@ func ParseFlags(cfg *Config, clusterName, bindAddr, apiBind, apiToken, seeds, di
 			log.Printf("WARNING: invalid --discovery-port %q: %v", discoveryPort, err)
 		} else {
 			cfg.Discovery.Port = p
+		}
+	}
+	if discoveryInterval != "" {
+		if d, err := time.ParseDuration(discoveryInterval); err != nil {
+			log.Printf("WARNING: invalid --discovery-interval %q: %v", discoveryInterval, err)
+		} else {
+			cfg.Discovery.Interval = d
 		}
 	}
 }
@@ -205,7 +212,7 @@ func ApplyEnv(cfg *Config) {
 		if b, err := strconv.ParseBool(v); err != nil {
 			log.Printf("WARNING: invalid GOGGRID_DISCOVERY_ENABLED %q: %v", v, err)
 		} else {
-			cfg.Discovery.Enabled = b
+			*cfg.Discovery.Enabled = b
 		}
 	}
 	if v := os.Getenv("GOGGRID_DISCOVERY_TYPE"); v != "" {
@@ -216,6 +223,13 @@ func ApplyEnv(cfg *Config) {
 			log.Printf("WARNING: invalid GOGGRID_DISCOVERY_PORT %q: %v", v, err)
 		} else {
 			cfg.Discovery.Port = p
+		}
+	}
+	if v := os.Getenv("GOGGRID_DISCOVERY_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err != nil {
+			log.Printf("WARNING: invalid GOGGRID_DISCOVERY_INTERVAL %q: %v", v, err)
+		} else {
+			cfg.Discovery.Interval = d
 		}
 	}
 }
@@ -269,7 +283,9 @@ func mergeConfig(dst, src *Config) {
 	if src.Discovery.Interval != 0 {
 		dst.Discovery.Interval = src.Discovery.Interval
 	}
-	dst.Discovery.Enabled = src.Discovery.Enabled
+	if src.Discovery.Enabled != nil {
+		*dst.Discovery.Enabled = *src.Discovery.Enabled
+	}
 }
 
 // splitSeeds splits a comma-separated seed string into a slice,
@@ -336,7 +352,7 @@ discovery:
 		cfg.API.Port,
 		cfg.Gossip.SyncInterval,
 		cfg.Gossip.ProbeInterval,
-		cfg.Discovery.Enabled,
+		*cfg.Discovery.Enabled,
 		cfg.Discovery.Type,
 		cfg.Discovery.Port,
 		cfg.Discovery.Interval,

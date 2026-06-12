@@ -42,7 +42,7 @@ func TestDefaultConfig(t *testing.T) {
 
 func TestDiscoveryDefaults(t *testing.T) {
 	cfg := DefaultConfig()
-	if !cfg.Discovery.Enabled {
+	if cfg.Discovery.Enabled == nil || !*cfg.Discovery.Enabled {
 		t.Error("discovery should be enabled by default")
 	}
 	if cfg.Discovery.Type != "udp" {
@@ -162,7 +162,7 @@ func TestApplyEnvDiscovery(t *testing.T) {
 	t.Setenv("GOGGRID_DISCOVERY_TYPE", "mdns")
 	t.Setenv("GOGGRID_DISCOVERY_PORT", "9999")
 	ApplyEnv(cfg)
-	if cfg.Discovery.Enabled {
+	if *cfg.Discovery.Enabled {
 		t.Error("discovery should be disabled")
 	}
 	if cfg.Discovery.Type != "mdns" {
@@ -179,7 +179,7 @@ func TestApplyEnvInvalidDiscovery(t *testing.T) {
 	t.Setenv("GOGGRID_DISCOVERY_PORT", "not-a-number")
 	ApplyEnv(cfg)
 	// Should still have defaults (invalid values are warned and ignored)
-	if !cfg.Discovery.Enabled {
+	if cfg.Discovery.Enabled == nil || !*cfg.Discovery.Enabled {
 		t.Error("discovery should still be enabled (invalid env ignored)")
 	}
 	if cfg.Discovery.Port != 7947 {
@@ -219,7 +219,7 @@ func TestParseFlagsBindAddr(t *testing.T) {
 
 func TestParseFlagsSeeds(t *testing.T) {
 	cfg := DefaultConfig()
-	ParseFlags(cfg, "", "", "", "", "10.0.0.1:7946,10.0.0.2:7946", "", "", "")
+	ParseFlags(cfg, "", "", "", "", "10.0.0.1:7946,10.0.0.2:7946", "", "", "", "")
 	if len(cfg.Cluster.Seeds) != 2 {
 		t.Errorf("expected 2 seeds, got %d", len(cfg.Cluster.Seeds))
 	}
@@ -230,7 +230,7 @@ func TestParseFlagsSeeds(t *testing.T) {
 
 func TestParseFlagsSeedsWithWhitespace(t *testing.T) {
 	cfg := DefaultConfig()
-	ParseFlags(cfg, "", "", "", "", " 10.0.0.1:7946 , 10.0.0.2:7946 ,, ", "", "", "")
+	ParseFlags(cfg, "", "", "", "", " 10.0.0.1:7946 , 10.0.0.2:7946 ,, ", "", "", "", "")
 	if len(cfg.Cluster.Seeds) != 2 {
 		t.Errorf("expected 2 seeds after trimming, got %d: %v", len(cfg.Cluster.Seeds), cfg.Cluster.Seeds)
 	}
@@ -238,8 +238,8 @@ func TestParseFlagsSeedsWithWhitespace(t *testing.T) {
 
 func TestParseFlagsDiscovery(t *testing.T) {
 	cfg := DefaultConfig()
-	ParseFlags(cfg, "", "", "", "", "", "true", "mdns", "8888")
-	if !cfg.Discovery.Enabled {
+	ParseFlags(cfg, "", "", "", "", "", "true", "mdns", "8888", "")
+	if cfg.Discovery.Enabled == nil || !*cfg.Discovery.Enabled {
 		t.Error("discovery should be enabled")
 	}
 	if cfg.Discovery.Type != "mdns" {
@@ -252,9 +252,9 @@ func TestParseFlagsDiscovery(t *testing.T) {
 
 func TestParseFlagsDiscoveryInvalid(t *testing.T) {
 	cfg := DefaultConfig()
-	ParseFlags(cfg, "", "", "", "", "", "bogus", "", "not-a-number")
+	ParseFlags(cfg, "", "", "", "", "", "bogus", "", "not-a-number", "")
 	// Should keep defaults
-	if !cfg.Discovery.Enabled {
+	if cfg.Discovery.Enabled == nil || !*cfg.Discovery.Enabled {
 		t.Error("discovery should still be enabled (invalid flag ignored)")
 	}
 	if cfg.Discovery.Port != 7947 {
@@ -298,7 +298,7 @@ func TestMergeConfigDiscovery(t *testing.T) {
 	src.Discovery.Type = "mdns"
 	src.Discovery.Port = 9999
 	src.Discovery.Interval = 10 * time.Second
-	src.Discovery.Enabled = false
+	src.Discovery.Enabled = boolPtr(false)
 
 	mergeConfig(dst, src)
 
@@ -311,7 +311,7 @@ func TestMergeConfigDiscovery(t *testing.T) {
 	if dst.Discovery.Interval != 10*time.Second {
 		t.Errorf("discovery interval = %v", dst.Discovery.Interval)
 	}
-	if dst.Discovery.Enabled {
+	if *dst.Discovery.Enabled {
 		t.Error("discovery should be disabled after merge")
 	}
 }

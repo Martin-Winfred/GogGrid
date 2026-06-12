@@ -12,6 +12,9 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 )
 
+// boolPtr returns a pointer to a bool. Mirrors config.boolPtr which is unexported.
+func boolPtr(b bool) *bool { return &b }
+
 func TestDiscoveryBaseIsNew(t *testing.T) {
 	db := newDiscoveryBase("test-cluster")
 
@@ -205,7 +208,7 @@ func TestUDPDiscoveryBroadcast(t *testing.T) {
 	gm := newTestGossipManager(t)
 
 	d := newUDPDiscovery(config.DiscoveryConfig{
-		Enabled:  true,
+		Enabled:  boolPtr(true),
 		Type:     "udp",
 		Port:     0,
 		Interval: 1 * time.Hour,
@@ -256,7 +259,7 @@ func TestUDPDiscoveryBroadcastSelfSkip(t *testing.T) {
 	gm := newTestGossipManager(t)
 
 	d := newUDPDiscovery(config.DiscoveryConfig{
-		Enabled:  true,
+		Enabled:  boolPtr(true),
 		Type:     "udp",
 		Port:     0,
 		Interval: 1 * time.Hour,
@@ -307,7 +310,7 @@ func TestUDPDiscoveryBroadcastClusterMismatch(t *testing.T) {
 	gm := newTestGossipManager(t)
 
 	d := newUDPDiscovery(config.DiscoveryConfig{
-		Enabled:  true,
+		Enabled:  boolPtr(true),
 		Type:     "udp",
 		Port:     0,
 		Interval: 1 * time.Hour,
@@ -358,7 +361,7 @@ func TestUDPDiscoveryStop(t *testing.T) {
 	gm := newTestGossipManager(t)
 
 	d := newUDPDiscovery(config.DiscoveryConfig{
-		Enabled:  true,
+		Enabled:  boolPtr(true),
 		Type:     "udp",
 		Port:     0,
 		Interval: 1 * time.Hour,
@@ -389,7 +392,7 @@ func TestMDNSDiscoveryStartStop(t *testing.T) {
 	gm := newTestGossipManager(t)
 
 	d := newMDNSDiscovery(config.DiscoveryConfig{
-		Enabled:  true,
+		Enabled:  boolPtr(true),
 		Type:     "mdns",
 		Port:     17947,
 		Interval: 3 * time.Second,
@@ -419,7 +422,7 @@ func TestMDNSDiscoveryServiceRegistration(t *testing.T) {
 	gm := newTestGossipManager(t)
 
 	d := newMDNSDiscovery(config.DiscoveryConfig{
-		Enabled:  true,
+		Enabled:  boolPtr(true),
 		Type:     "mdns",
 		Port:     17948,
 		Interval: 3 * time.Second,
@@ -484,7 +487,7 @@ func TestMDNSDiscoveryHandleEntrySelfSkip(t *testing.T) {
 	gm := newTestGossipManager(t)
 
 	d := newMDNSDiscovery(config.DiscoveryConfig{
-		Enabled:  true,
+		Enabled:  boolPtr(true),
 		Type:     "mdns",
 		Port:     17949,
 		Interval: 3 * time.Second,
@@ -520,7 +523,7 @@ func TestMDNSDiscoveryHandleEntryClusterMismatch(t *testing.T) {
 	gm := newTestGossipManager(t)
 
 	d := newMDNSDiscovery(config.DiscoveryConfig{
-		Enabled:  true,
+		Enabled:  boolPtr(true),
 		Type:     "mdns",
 		Port:     17950,
 		Interval: 3 * time.Second,
@@ -555,7 +558,7 @@ func TestMDNSDiscoveryHandleEntryValid(t *testing.T) {
 	gm := newTestGossipManager(t)
 
 	d := newMDNSDiscovery(config.DiscoveryConfig{
-		Enabled:  true,
+		Enabled:  boolPtr(true),
 		Type:     "mdns",
 		Port:     17951,
 		Interval: 3 * time.Second,

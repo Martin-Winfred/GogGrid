@@ -88,7 +88,7 @@ func (g *GossipManager) Start() error {
 	}
 
 	// Start auto-discovery if enabled
-	if g.cfg.Discovery.Enabled {
+	if *g.cfg.Discovery.Enabled {
 		switch g.cfg.Discovery.Type {
 		case "udp":
 			g.discovery = newUDPDiscovery(g.cfg.Discovery, g.cfg.Cluster.Name)
