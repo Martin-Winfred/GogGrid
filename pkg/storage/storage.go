@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -43,6 +44,11 @@ func New(dbPath string) (*Storage, error) {
 		return nil, fmt.Errorf("set busy timeout: %w", err)
 	}
 
+	// Create unique index for deduplication of history events by (node_id, version, event_type)
+	if _, err := sqlDB.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_history_node_version_event ON history_records(node_id, version, event_type)"); err != nil {
+		return nil, fmt.Errorf("create unique index: %w", err)
+	}
+
 	return &Storage{db: db}, nil
 }
 
@@ -83,9 +89,10 @@ func (s *Storage) DeleteNodeState(nodeID string) error {
 	return s.db.Where("node_id = ?", nodeID).Delete(&models.NodeState{}).Error
 }
 
-// SaveHistoryRecord saves a history record
+// SaveHistoryRecord saves a history record, silently skipping duplicates
+// identified by the unique constraint on (node_id, version, event_type).
 func (s *Storage) SaveHistoryRecord(hr *models.HistoryRecord) error {
-	return s.db.Create(hr).Error
+	return s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(hr).Error
 }
 
 // GetNodeHistory retrieves node history with optional time range filter.
@@ -113,4 +120,54 @@ func (s *Storage) CleanOldRecords(retention time.Duration) (int64, error) {
 	cutoff := time.Now().Add(-retention)
 	result := s.db.Where("timestamp < ?", cutoff).Delete(&models.HistoryRecord{})
 	return result.RowsAffected, result.Error
+}
+
+// GetAllHistorySince retrieves all history records across all nodes since a given time,
+// ordered by timestamp ascending. Supports pagination via offset and limit.
+// Pass time.Time{} for since to retrieve all records. Limit is capped at 500.
+func (s *Storage) GetAllHistorySince(since time.Time, offset, limit int) ([]*models.HistoryRecord, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 500
+	}
+	var records []*models.HistoryRecord
+	query := s.db.Model(&models.HistoryRecord{})
+	if !since.IsZero() {
+		query = query.Where("timestamp >= ?", since)
+	}
+	if err := query.Order("timestamp ASC").Offset(offset).Limit(limit).Find(&records).Error; err != nil {
+		return nil, err
+	}
+	return records, nil
+}
+
+// GetLatestHistoryTime returns the timestamp of the most recent HistoryRecord.
+// Returns time.Time{} if the table is empty.
+func (s *Storage) GetLatestHistoryTime() (time.Time, error) {
+	var hr models.HistoryRecord
+	err := s.db.Order("timestamp DESC").Limit(1).First(&hr).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return time.Time{}, nil
+	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	return hr.Timestamp, nil
+}
+
+// ImportHistoryRecords bulk-imports history records pulled from a remote peer.
+// Uses ON CONFLICT DO NOTHING to skip duplicates (same node_id + version + event_type).
+// Returns the number of rows actually inserted.
+func (s *Storage) ImportHistoryRecords(records []*models.HistoryRecord) (int64, error) {
+	if len(records) == 0 {
+		return 0, nil
+	}
+	var inserted int64
+	for _, r := range records {
+		result := s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(r)
+		if result.Error != nil {
+			return inserted, result.Error
+		}
+		inserted += result.RowsAffected
+	}
+	return inserted, nil
 }
