@@ -83,11 +83,11 @@ func main() {
 	slog.Info("storage init complete", "db_path", cfg.Storage.DBPath)
 
 	// 5. Create state manager
-	stateMgr := state.NewStateManager(cfg.Cluster.Name, nodeID)
+	stateMgr := state.NewStateManager(cfg.Cluster.Name, nodeID, store)
 	slog.Info("state manager init complete")
 
 	// 6. Start Gossip communication layer
-	gossipMgr, err := gossip.New(cfg, stateMgr)
+	gossipMgr, err := gossip.New(cfg, stateMgr, store)
 	if err != nil {
 		slog.Error("gossip init failed", "error", err)
 		store.Close()
