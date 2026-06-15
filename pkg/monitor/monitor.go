@@ -80,7 +80,7 @@ type HostMonitor struct {
 	MemUsage         float64
 	MemUsed          uint64
 	MemTotal         uint64
-	NetName          string
+
 	BytesRecv        uint64
 	BytesSent        uint64
 	LocalIP          string
@@ -227,6 +227,6 @@ func (h *HostMonitor) ToNodeState(nodeID string) *models.NodeState {
 		},
 		LastSeen:    now,
 		LastUpdated: now,
-		Version:     1,
+		// Version is managed by collectAndPublish, initialized to 0 here
 	}
 }

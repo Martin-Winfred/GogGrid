@@ -101,6 +101,16 @@ func main() {
 	}
 	slog.Info("gossip communication layer started", "members", gossipMgr.NumMembers())
 
+	// Trigger history backfill when joining a cluster with existing members
+	if gossipMgr.NumMembers() > 1 {
+		go func() {
+			slog.Info("starting history sync from existing peer")
+			if err := gossipMgr.SyncHistoryOnJoin(); err != nil {
+				slog.Warn("history sync failed", "error", err)
+			}
+		}()
+	}
+
 	// 7. Start API service
 	var apiSrv *api.APIServer
 	if *cfg.API.Enabled {
@@ -190,7 +200,15 @@ func collectAndPublish(nodeID string, stateMgr *state.StateManager,
 	}
 
 	ns := hm.ToNodeState(nodeID)
-	ns.Version++ // increment version
+
+	// Recover and increment Version: memory → SQLite → default 1
+	if existing, exists := stateMgr.GetNode(nodeID); exists {
+		ns.Version = existing.Version + 1
+	} else if persisted, err := store.GetNodeState(nodeID); err == nil {
+		ns.Version = persisted.Version + 1
+	} else {
+		ns.Version = 1
+	}
 	ns.LastUpdated = time.Now()
 	ns.LastSeen = time.Now()
 	ns.Status = "active"
@@ -208,9 +226,12 @@ func collectAndPublish(nodeID string, stateMgr *state.StateManager,
 		slog.Warn("state persist failed", "error", err)
 	}
 
-	// Save history record
+	// Save history record with event metadata for dedup and audit
 	hr := &models.HistoryRecord{
 		NodeID:       nodeID,
+		Version:      ns.Version,
+		EventType:    "metric_update",
+		Source:       "local",
 		Timestamp:    time.Now(),
 		CPUUsage:     ns.CPUUsage,
 		MemoryUsage:  ns.MemoryUsage,
