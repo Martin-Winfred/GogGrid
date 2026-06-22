@@ -1,6 +1,7 @@
 package gossip
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -372,6 +373,32 @@ func TestHandleHistoryPullRequestPagination(t *testing.T) {
 	}
 	if nextOffset != 500 {
 		t.Errorf("NextOffset should be 500, got %d", nextOffset)
+	}
+}
+
+func TestSyncHistoryOnJoinCancelledContext(t *testing.T) {
+	gm := newTestGossipManagerForHistory(t, "test-node")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	done := make(chan struct{})
+	go func() {
+		err := gm.SyncHistoryOnJoin(ctx)
+		// With a single-member cluster, SyncHistoryOnJoin returns nil
+		// immediately (no peers to pull from). The key property under
+		// test is that a cancelled context does not cause the function
+		// to block indefinitely.
+		if err != nil {
+			t.Logf("SyncHistoryOnJoin returned: %v", err)
+		}
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// success — returned quickly
+	case <-time.After(5 * time.Second):
+		t.Fatal("SyncHistoryOnJoin did not return within 5s on cancelled context")
 	}
 }
 

@@ -42,12 +42,19 @@ type StorageConfig struct {
 	Retention time.Duration `yaml:"retention"`
 }
 
+// WSConfig holds WebSocket configuration
+type WSConfig struct {
+	Enabled        *bool    `yaml:"enabled"`
+	AllowedOrigins []string `yaml:"allowed_origins"`
+}
+
 // APIConfig holds API configuration
 type APIConfig struct {
-	Enabled  *bool  `yaml:"enabled"`
-	BindAddr string `yaml:"bind_addr"`
-	Port     int    `yaml:"port"`
-	Token    string `yaml:"token"`
+	Enabled  *bool   `yaml:"enabled"`
+	BindAddr string  `yaml:"bind_addr"`
+	Port     int     `yaml:"port"`
+	Token    string  `yaml:"token"`
+	WS       WSConfig `yaml:"ws"`
 }
 
 // GossipConfig holds gossip configuration
@@ -86,6 +93,10 @@ func DefaultConfig() *Config {
 			Enabled:  boolPtr(true),
 			BindAddr: "0.0.0.0",
 			Port:     8080,
+			WS: WSConfig{
+				Enabled:        boolPtr(false),
+				AllowedOrigins: []string{},
+			},
 		},
 		Gossip: GossipConfig{
 			SyncInterval:  30 * time.Second,
@@ -134,7 +145,7 @@ func LoadConfigFile(cfg *Config, configPath string) error {
 
 // ParseFlags applies CLI flag overrides to cfg.
 // Flags must have been registered and flag.Parse() called by the caller.
-func ParseFlags(cfg *Config, clusterName, bindAddr, apiBind, apiToken, seeds, discoveryEnabled, discoveryType, discoveryPort, discoveryInterval string) {
+func ParseFlags(cfg *Config, clusterName, bindAddr, apiBind, apiToken, seeds, discoveryEnabled, discoveryType, discoveryPort, discoveryInterval, wsEnabled, wsAllowedOrigins string) {
 	if clusterName != "" {
 		cfg.Cluster.Name = clusterName
 	}
@@ -188,6 +199,16 @@ func ParseFlags(cfg *Config, clusterName, bindAddr, apiBind, apiToken, seeds, di
 			cfg.Discovery.Interval = d
 		}
 	}
+	if wsEnabled != "" {
+		if b, err := strconv.ParseBool(wsEnabled); err != nil {
+			log.Printf("WARNING: invalid --ws-enabled %q: %v", wsEnabled, err)
+		} else {
+			*cfg.API.WS.Enabled = b
+		}
+	}
+	if wsAllowedOrigins != "" {
+		cfg.API.WS.AllowedOrigins = splitSeeds(wsAllowedOrigins)
+	}
 }
 
 // ApplyEnv overrides config from environment variables
@@ -232,6 +253,16 @@ func ApplyEnv(cfg *Config) {
 			cfg.Discovery.Interval = d
 		}
 	}
+	if v := os.Getenv("GOGGRID_WS_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err != nil {
+			log.Printf("WARNING: invalid GOGGRID_WS_ENABLED %q: %v", v, err)
+		} else {
+			*cfg.API.WS.Enabled = b
+		}
+	}
+	if v := os.Getenv("GOGGRID_WS_ALLOWED_ORIGINS"); v != "" {
+		cfg.API.WS.AllowedOrigins = splitSeeds(v)
+	}
 }
 
 func mergeConfig(dst, src *Config) {
@@ -267,6 +298,12 @@ func mergeConfig(dst, src *Config) {
 	}
 	if src.API.Token != "" {
 		dst.API.Token = src.API.Token
+	}
+	if src.API.WS.Enabled != nil {
+		*dst.API.WS.Enabled = *src.API.WS.Enabled
+	}
+	if len(src.API.WS.AllowedOrigins) > 0 {
+		dst.API.WS.AllowedOrigins = src.API.WS.AllowedOrigins
 	}
 	if src.Gossip.SyncInterval != 0 {
 		dst.Gossip.SyncInterval = src.Gossip.SyncInterval
@@ -330,6 +367,9 @@ api:
   bind_addr: "%s"
   port: %d
   token: ""
+  ws:
+    enabled: %t
+    allowed_origins: []
 
 gossip:
   sync_interval: %s
@@ -350,6 +390,7 @@ discovery:
 		*cfg.API.Enabled,
 		cfg.API.BindAddr,
 		cfg.API.Port,
+		*cfg.API.WS.Enabled,
 		cfg.Gossip.SyncInterval,
 		cfg.Gossip.ProbeInterval,
 		*cfg.Discovery.Enabled,

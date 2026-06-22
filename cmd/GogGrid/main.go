@@ -32,6 +32,8 @@ func main() {
 	discoveryType := flag.String("discovery-type", "", "discovery protocol (udp, mdns)")
 	discoveryPort := flag.String("discovery-port", "", "discovery port")
 	discoveryInterval := flag.String("discovery-interval", "", "discovery interval (e.g. 3s, 5s)")
+	wsEnabled := flag.String("ws-enabled", "", "enable WebSocket (true/false)")
+	wsAllowedOrigins := flag.String("ws-allowed-origins", "", "comma-separated WebSocket allowed origins")
 	flag.Parse()
 
 	// 1. Load config (defaults → auto goggrid.yaml → env → CLI)
@@ -54,7 +56,7 @@ func main() {
 		}
 	}
 	config.ApplyEnv(cfg)
-	config.ParseFlags(cfg, *clusterName, *bindAddr, *apiBind, *apiToken, *seeds, *discoveryEnabled, *discoveryType, *discoveryPort, *discoveryInterval)
+	config.ParseFlags(cfg, *clusterName, *bindAddr, *apiBind, *apiToken, *seeds, *discoveryEnabled, *discoveryType, *discoveryPort, *discoveryInterval, *wsEnabled, *wsAllowedOrigins)
 
 	// 2. Initialize structured logging
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -101,11 +103,15 @@ func main() {
 	}
 	slog.Info("gossip communication layer started", "members", gossipMgr.NumMembers())
 
+	// Create context for monitor loop, cleanup loop, and history sync
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// Trigger history backfill when joining a cluster with existing members
 	if gossipMgr.NumMembers() > 1 {
 		go func() {
 			slog.Info("starting history sync from existing peer")
-			if err := gossipMgr.SyncHistoryOnJoin(); err != nil {
+			if err := gossipMgr.SyncHistoryOnJoin(ctx); err != nil {
 				slog.Warn("history sync failed", "error", err)
 			}
 		}()
@@ -124,8 +130,6 @@ func main() {
 	}
 
 	// 8. Start monitoring loop
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	// Start background CPU sampler so GetHostMonitor() does not block
 	monitor.StartCPUSampler(ctx, cfg.Monitor.Interval)

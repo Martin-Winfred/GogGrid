@@ -7,14 +7,9 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
 	"github.com/Martin-Winfred/GogGrid/pkg/state"
 )
-
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin:     func(r *http.Request) bool { return true },
-}
 
 // wsHub WebSocket connection hub
 type wsHub struct {
@@ -24,6 +19,7 @@ type wsHub struct {
 	unregister chan *wsClient
 	stateMgr   *state.StateManager
 	stopCh     chan struct{}
+	upgrader   websocket.Upgrader
 }
 
 // wsClient single WebSocket connection
@@ -33,7 +29,7 @@ type wsClient struct {
 	hub  *wsHub
 }
 
-func newWSHub(stateMgr *state.StateManager) *wsHub {
+func newWSHub(stateMgr *state.StateManager, allowedOrigins []string) *wsHub {
 	return &wsHub{
 		clients:    make(map[*wsClient]bool),
 		broadcast:  make(chan []byte, 256),
@@ -41,6 +37,29 @@ func newWSHub(stateMgr *state.StateManager) *wsHub {
 		unregister: make(chan *wsClient),
 		stateMgr:   stateMgr,
 		stopCh:     make(chan struct{}),
+		upgrader:   createUpgrader(allowedOrigins),
+	}
+}
+
+func createUpgrader(allowedOrigins []string) websocket.Upgrader {
+	return websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			origin := r.Header.Get("Origin")
+			if origin == "" {
+				return true // non-browser clients
+			}
+			if len(allowedOrigins) == 0 {
+				return false
+			}
+			for _, o := range allowedOrigins {
+				if origin == o {
+					return true
+				}
+			}
+			return false
+		},
 	}
 }
 

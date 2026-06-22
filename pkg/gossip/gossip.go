@@ -1,6 +1,7 @@
 package gossip
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"math/rand"
@@ -421,7 +422,7 @@ func (g *GossipManager) handleHistoryPullResponse(payload *HistoryPullResponsePa
 	}
 }
 
-func (g *GossipManager) SyncHistoryOnJoin() error {
+func (g *GossipManager) SyncHistoryOnJoin(ctx context.Context) error {
 	members := g.list.Members()
 	if len(members) <= 1 {
 		slog.Info("history sync: no peers to pull from, skipping")
@@ -454,7 +455,14 @@ func (g *GossipManager) SyncHistoryOnJoin() error {
 	g.pendingSyncs[reqID] = ps
 	g.syncMu.Unlock()
 
-	g.sendHistoryPullRequest(ps)
+	go func() {
+		select {
+		case <-ctx.Done():
+			g.failPendingSync(ps, ctx.Err())
+		default:
+			g.sendHistoryPullRequest(ps)
+		}
+	}()
 
 	select {
 	case err := <-ps.done:
@@ -462,6 +470,11 @@ func (g *GossipManager) SyncHistoryOnJoin() error {
 			slog.Warn("history sync failed", "error", err)
 		}
 		return err
+	case <-ctx.Done():
+		g.syncMu.Lock()
+		delete(g.pendingSyncs, reqID)
+		g.syncMu.Unlock()
+		return ctx.Err()
 	case <-time.After(120 * time.Second):
 		g.syncMu.Lock()
 		delete(g.pendingSyncs, reqID)
