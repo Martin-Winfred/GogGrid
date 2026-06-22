@@ -16,7 +16,7 @@ func setupTestServer(t *testing.T) (*APIServer, *state.StateManager, *storage.St
 	t.Helper()
 	cfg := config.DefaultConfig()
 	cfg.API.Port = 0 // random port
-	stateMgr := state.NewStateManager("TestCluster", "test-node-1")
+	stateMgr := state.NewStateManager("TestCluster", "test-node-1", nil)
 	store, err := storage.New(":memory:")
 	if err != nil {
 		t.Fatalf("storage create failed: %v", err)
@@ -143,6 +143,8 @@ func TestNodeHistory(t *testing.T) {
 
 	hr := &models.HistoryRecord{
 		NodeID:    "n1",
+		Version:   1,
+		EventType: "metric_update",
 		Timestamp: time.Now(),
 		CPUUsage:  30.0,
 	}

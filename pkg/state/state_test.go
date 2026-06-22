@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Martin-Winfred/GogGrid/pkg/models"
+	"github.com/Martin-Winfred/GogGrid/pkg/storage"
 )
 
 func makeNodeState(nodeID string, version int64, cpu float64, updated time.Time) *models.NodeState {
@@ -22,7 +23,7 @@ func makeNodeState(nodeID string, version int64, cpu float64, updated time.Time)
 }
 
 func TestNewStateManager(t *testing.T) {
-	sm := NewStateManager("TestCluster", "local1")
+	sm := NewStateManager("TestCluster", "local1", nil)
 	cs := sm.GetClusterState()
 	if cs.ClusterName != "TestCluster" {
 		t.Errorf("cluster name = %s", cs.ClusterName)
@@ -36,7 +37,7 @@ func TestNewStateManager(t *testing.T) {
 }
 
 func TestUpdateLocalNode(t *testing.T) {
-	sm := NewStateManager("Test", "local1")
+	sm := NewStateManager("Test", "local1", nil)
 	ns := makeNodeState("local1", 1, 50.0, time.Now())
 	sm.UpdateLocalNode(ns)
 	cs := sm.GetClusterState()
@@ -49,7 +50,7 @@ func TestUpdateLocalNode(t *testing.T) {
 }
 
 func TestGetClusterStateDeepCopy(t *testing.T) {
-	sm := NewStateManager("Test", "local1")
+	sm := NewStateManager("Test", "local1", nil)
 	ns := makeNodeState("local1", 1, 50.0, time.Now())
 	sm.UpdateLocalNode(ns)
 	cs := sm.GetClusterState()
@@ -62,7 +63,7 @@ func TestGetClusterStateDeepCopy(t *testing.T) {
 }
 
 func TestMergeNewNode(t *testing.T) {
-	sm := NewStateManager("Test", "local1")
+	sm := NewStateManager("Test", "local1", nil)
 	remote := makeNodeState("remote1", 1, 80.0, time.Now())
 	changed := sm.MergeNodeState(remote)
 	if !changed {
@@ -75,7 +76,7 @@ func TestMergeNewNode(t *testing.T) {
 }
 
 func TestMergeNewerVersion(t *testing.T) {
-	sm := NewStateManager("Test", "local1")
+	sm := NewStateManager("Test", "local1", nil)
 	now := time.Now()
 	old := makeNodeState("remote1", 1, 50.0, now)
 	sm.MergeNodeState(old)
@@ -91,7 +92,7 @@ func TestMergeNewerVersion(t *testing.T) {
 }
 
 func TestMergeOlderVersion(t *testing.T) {
-	sm := NewStateManager("Test", "local1")
+	sm := NewStateManager("Test", "local1", nil)
 	now := time.Now()
 	new := makeNodeState("remote1", 2, 80.0, now)
 	sm.MergeNodeState(new)
@@ -107,7 +108,7 @@ func TestMergeOlderVersion(t *testing.T) {
 }
 
 func TestResolveConflictLWW(t *testing.T) {
-	sm := NewStateManager("Test", "local1")
+	sm := NewStateManager("Test", "local1", nil)
 	now := time.Now()
 	// insert node with same version
 	existing := makeNodeState("remote1", 1, 50.0, now)
@@ -131,7 +132,7 @@ func TestResolveConflictLWW(t *testing.T) {
 }
 
 func TestSubscribeNotify(t *testing.T) {
-	sm := NewStateManager("Test", "local1")
+	sm := NewStateManager("Test", "local1", nil)
 	ch := sm.Subscribe()
 	defer sm.Unsubscribe(ch)
 	ns := makeNodeState("local1", 1, 50.0, time.Now())
@@ -150,7 +151,7 @@ func TestSubscribeNotify(t *testing.T) {
 }
 
 func TestUnsubscribe(t *testing.T) {
-	sm := NewStateManager("Test", "local1")
+	sm := NewStateManager("Test", "local1", nil)
 	ch := sm.Subscribe()
 	sm.Unsubscribe(ch)
 	// verify channel is closed
@@ -161,7 +162,7 @@ func TestUnsubscribe(t *testing.T) {
 }
 
 func TestMarkNodeInactive(t *testing.T) {
-	sm := NewStateManager("Test", "local1")
+	sm := NewStateManager("Test", "local1", nil)
 	sm.UpdateLocalNode(makeNodeState("local1", 1, 50.0, time.Now()))
 	sm.MarkNodeInactive("local1")
 	ns, ok := sm.GetNode("local1")
@@ -174,7 +175,7 @@ func TestMarkNodeInactive(t *testing.T) {
 }
 
 func TestMarkNodeInactiveDeepCopy(t *testing.T) {
-	sm := NewStateManager("Test", "local1")
+	sm := NewStateManager("Test", "local1", nil)
 	sm.UpdateLocalNode(makeNodeState("local1", 1, 50.0, time.Now()))
 	sm.MarkNodeInactive("local1")
 
@@ -195,7 +196,7 @@ func TestMarkNodeInactiveDeepCopy(t *testing.T) {
 }
 
 func TestRemoveNode(t *testing.T) {
-	sm := NewStateManager("Test", "local1")
+	sm := NewStateManager("Test", "local1", nil)
 	sm.UpdateLocalNode(makeNodeState("local1", 1, 50.0, time.Now()))
 	sm.RemoveNode("local1")
 	_, ok := sm.GetNode("local1")
@@ -205,7 +206,7 @@ func TestRemoveNode(t *testing.T) {
 }
 
 func TestGetNode(t *testing.T) {
-	sm := NewStateManager("Test", "local1")
+	sm := NewStateManager("Test", "local1", nil)
 	sm.UpdateLocalNode(makeNodeState("local1", 1, 50.0, time.Now()))
 	ns, ok := sm.GetNode("local1")
 	if !ok {
@@ -217,5 +218,151 @@ func TestGetNode(t *testing.T) {
 	_, ok = sm.GetNode("nonexistent")
 	if ok {
 		t.Error("non-existent node should return ok=false")
+	}
+}
+
+func TestMergeNodeStateRecordsJoinEvent(t *testing.T) {
+	s, _ := storage.New(":memory:")
+	defer s.Close()
+	sm := NewStateManager("test", "local", s)
+
+	remote := makeNodeState("new-node", 1, 30.0, time.Now())
+	sm.MergeNodeState(remote)
+
+	records, err := s.GetNodeHistory("new-node", time.Time{}, time.Time{})
+	if err != nil {
+		t.Fatalf("query history failed: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("history count = %d, want 1", len(records))
+	}
+	if records[0].EventType != "node_join" {
+		t.Errorf("EventType = %q, want node_join", records[0].EventType)
+	}
+	if records[0].Version != 1 {
+		t.Errorf("Version = %d, want 1", records[0].Version)
+	}
+}
+
+func TestMergeNodeStateRecordsMetricEvent(t *testing.T) {
+	s, _ := storage.New(":memory:")
+	defer s.Close()
+	sm := NewStateManager("test", "local", s)
+
+	now := time.Now()
+	sm.MergeNodeState(makeNodeState("remote", 1, 30.0, now))
+	sm.MergeNodeState(makeNodeState("remote", 2, 50.0, now.Add(time.Second)))
+
+	records, err := s.GetNodeHistory("remote", time.Time{}, time.Time{})
+	if err != nil {
+		t.Fatalf("query history failed: %v", err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("history count = %d, want 2", len(records))
+	}
+	metricCount := 0
+	for _, r := range records {
+		if r.EventType == "metric_update" {
+			metricCount++
+		}
+	}
+	if metricCount != 1 {
+		t.Errorf("metric_update count = %d, want 1", metricCount)
+	}
+}
+
+func TestMarkNodeInactiveRecordsLeaveEvent(t *testing.T) {
+	s, _ := storage.New(":memory:")
+	defer s.Close()
+	sm := NewStateManager("test", "local", s)
+
+	sm.UpdateLocalNode(makeNodeState("local", 1, 30.0, time.Now()))
+	sm.MarkNodeInactive("local")
+
+	records, err := s.GetNodeHistory("local", time.Time{}, time.Time{})
+	if err != nil {
+		t.Fatalf("query history failed: %v", err)
+	}
+	found := false
+	for _, r := range records {
+		if r.EventType == "node_leave" && r.Status == "inactive" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("node_leave event not recorded")
+	}
+}
+
+func TestMergeNodeStateDuplicateVersionIgnored(t *testing.T) {
+	s, _ := storage.New(":memory:")
+	defer s.Close()
+	sm := NewStateManager("test", "local", s)
+
+	now := time.Now()
+	remote := makeNodeState("dup-node", 1, 30.0, now)
+	sm.MergeNodeState(remote)
+	sm.MergeNodeState(remote)
+
+	records, err := s.GetNodeHistory("dup-node", time.Time{}, time.Time{})
+	if err != nil {
+		t.Fatalf("query history failed: %v", err)
+	}
+	if len(records) != 1 {
+		t.Errorf("history count = %d, want 1 (duplicate should be skipped)", len(records))
+	}
+}
+
+func TestMergeNodeStateDoesNotBlockReads(t *testing.T) {
+	s, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	sm := NewStateManager("test", "local", s)
+
+	done := make(chan struct{})
+
+	// Writer goroutine: continuously merge node state to provoke I/O under load
+	go func() {
+		defer close(done)
+		for i := int64(0); i < 200; i++ {
+			remote := makeNodeState("writer-node", i, float64(i), time.Now())
+			sm.MergeNodeState(remote)
+		}
+	}()
+
+	// Reader: repeatedly call GetClusterState, verify it completes within 50ms
+	for i := 0; i < 60; i++ {
+		resultCh := make(chan struct{}, 1)
+		go func() {
+			sm.GetClusterState()
+			resultCh <- struct{}{}
+		}()
+		select {
+		case <-resultCh:
+			// read completed in time
+		case <-time.After(50 * time.Millisecond):
+			t.Fatal("GetClusterState blocked for more than 50ms during MergeNodeState writes")
+		}
+	}
+	<-done
+}
+
+func TestGetSetHistorySyncTime(t *testing.T) {
+	s, _ := storage.New(":memory:")
+	defer s.Close()
+	sm := NewStateManager("test", "local", s)
+
+	initial := sm.GetHistorySyncTime()
+	if !initial.IsZero() {
+		t.Errorf("initial sync time should be zero, got %v", initial)
+	}
+
+	now := time.Now()
+	sm.SetHistorySyncTime(now)
+	got := sm.GetHistorySyncTime()
+	if !got.Equal(now) {
+		t.Errorf("sync time = %v, want %v", got, now)
 	}
 }

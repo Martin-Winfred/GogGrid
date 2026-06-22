@@ -1,9 +1,11 @@
 package gossip
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"math/rand"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/memberlist"
@@ -11,6 +13,7 @@ import (
 	"github.com/Martin-Winfred/GogGrid/pkg/models"
 	"github.com/Martin-Winfred/GogGrid/pkg/monitor"
 	"github.com/Martin-Winfred/GogGrid/pkg/state"
+	"github.com/Martin-Winfred/GogGrid/pkg/storage"
 )
 
 // GossipManager manages memberlist communication
@@ -22,14 +25,28 @@ type GossipManager struct {
 	stopCh    chan struct{}
 	broadcast *memberlist.TransmitLimitedQueue
 	discovery Discovery // auto-discovery mechanism
+	store        *storage.Storage
+	pendingSyncs map[string]*pendingSync
+	syncMu       sync.Mutex
+}
+
+type pendingSync struct {
+	reqID  string
+	peer   *memberlist.Node
+	offset int
+	limit  int
+	total  int64
+	done   chan error
 }
 
 // New creates a GossipManager
-func New(cfg *config.Config, stateMgr *state.StateManager) (*GossipManager, error) {
+func New(cfg *config.Config, stateMgr *state.StateManager, store *storage.Storage) (*GossipManager, error) {
 	gm := &GossipManager{
-		stateMgr: stateMgr,
-		cfg:      cfg,
-		stopCh:   make(chan struct{}),
+		stateMgr:      stateMgr,
+		cfg:           cfg,
+		stopCh:        make(chan struct{}),
+		store:         store,
+		pendingSyncs:  make(map[string]*pendingSync),
 	}
 
 	// Determine local node identity
@@ -288,6 +305,20 @@ func (g *GossipManager) handleMessage(data []byte) {
 		}
 	case MsgHeartbeat:
 		// Heartbeat: no special handling, memberlist handles liveness internally
+	case MsgHistoryPullRequest:
+		var payload HistoryPullRequestPayload
+		if err := DecodePayload(msg.Payload, &payload); err != nil {
+			slog.Warn("history pull request decode failed", "error", err)
+			return
+		}
+		g.handleHistoryPullRequest(&payload, msg.FromNode)
+	case MsgHistoryPullResponse:
+		var payload HistoryPullResponsePayload
+		if err := DecodePayload(msg.Payload, &payload); err != nil {
+			slog.Warn("history pull response decode failed", "error", err)
+			return
+		}
+		g.handleHistoryPullResponse(&payload)
 	}
 }
 
@@ -304,6 +335,192 @@ func (g *GossipManager) handleMergeRemoteState(buf []byte, join bool) {
 		for _, ns := range payload.Nodes {
 			g.stateMgr.MergeNodeState(ns)
 		}
+	}
+}
+
+func (g *GossipManager) handleHistoryPullRequest(payload *HistoryPullRequestPayload, fromNode string) {
+	since := time.Time{}
+	if payload.SinceUnixNano > 0 {
+		since = time.Unix(0, payload.SinceUnixNano)
+	}
+	limit := payload.Limit
+	if limit <= 0 || limit > 500 {
+		limit = 500
+	}
+	records, err := g.store.GetAllHistorySince(since, payload.Offset, limit)
+	if err != nil {
+		slog.Warn("history pull: query failed", "error", err, "req_id", payload.RequestID)
+		return
+	}
+	hasMore := len(records) == limit
+	respPayload, err := EncodePayload(&HistoryPullResponsePayload{
+		RequestID:  payload.RequestID,
+		Records:    records,
+		HasMore:    hasMore,
+		NextOffset: payload.Offset + len(records),
+		TotalCount: -1,
+	})
+	if err != nil {
+		slog.Warn("history pull: encode response failed", "error", err)
+		return
+	}
+	msg := NewGossipMessage(MsgHistoryPullResponse, g.localNode, respPayload)
+	data, err := EncodeMessage(msg)
+	if err != nil {
+		slog.Warn("history pull: encode message failed", "error", err)
+		return
+	}
+	for _, member := range g.list.Members() {
+		if member.Name == fromNode {
+			if err := g.list.SendReliable(member, data); err != nil {
+				slog.Warn("history pull: send response failed", "to", fromNode, "error", err)
+			}
+			return
+		}
+	}
+	slog.Warn("history pull: target node not found", "from", fromNode)
+}
+
+func (g *GossipManager) handleHistoryPullResponse(payload *HistoryPullResponsePayload) {
+	g.syncMu.Lock()
+	ps, ok := g.pendingSyncs[payload.RequestID]
+	if !ok {
+		g.syncMu.Unlock()
+		slog.Warn("history pull response for unknown request", "req_id", payload.RequestID)
+		return
+	}
+	g.syncMu.Unlock()
+
+	inserted, err := g.store.ImportHistoryRecords(payload.Records)
+	if err != nil {
+		g.failPendingSync(ps, err)
+		return
+	}
+	ps.total += inserted
+
+	if payload.HasMore {
+		const maxPages = 100
+		if ps.offset/ps.limit >= maxPages {
+			g.failPendingSync(ps, fmt.Errorf("history sync exceeded max pages (%d)", maxPages))
+			return
+		}
+		g.syncMu.Lock()
+		if _, ok := g.pendingSyncs[ps.reqID]; !ok {
+			g.syncMu.Unlock()
+			return
+		}
+		g.syncMu.Unlock()
+		ps.offset = payload.NextOffset
+		go g.sendHistoryPullRequest(ps)
+	} else {
+		latestTime, err := g.store.GetLatestHistoryTime()
+		if err == nil && !latestTime.IsZero() {
+			g.stateMgr.SetHistorySyncTime(latestTime)
+		}
+		g.failPendingSync(ps, nil)
+		slog.Info("history sync completed", "req_id", payload.RequestID, "total", ps.total)
+	}
+}
+
+func (g *GossipManager) SyncHistoryOnJoin(ctx context.Context) error {
+	members := g.list.Members()
+	if len(members) <= 1 {
+		slog.Info("history sync: no peers to pull from, skipping")
+		return nil
+	}
+
+	var peer *memberlist.Node
+	for _, m := range members {
+		if m.Name != g.localNode {
+			peer = m
+			break
+		}
+	}
+	if peer == nil {
+		return nil
+	}
+
+	slog.Info("history sync: starting pull", "peer", peer.Name)
+	reqID := fmt.Sprintf("%s-%d", g.localNode, time.Now().UnixNano())
+
+	ps := &pendingSync{
+		reqID:  reqID,
+		peer:   peer,
+		offset: 0,
+		limit:  500,
+		total:  0,
+		done:   make(chan error, 1),
+	}
+	g.syncMu.Lock()
+	g.pendingSyncs[reqID] = ps
+	g.syncMu.Unlock()
+
+	go func() {
+		select {
+		case <-ctx.Done():
+			g.failPendingSync(ps, ctx.Err())
+		default:
+			g.sendHistoryPullRequest(ps)
+		}
+	}()
+
+	select {
+	case err := <-ps.done:
+		if err != nil {
+			slog.Warn("history sync failed", "error", err)
+		}
+		return err
+	case <-ctx.Done():
+		g.syncMu.Lock()
+		delete(g.pendingSyncs, reqID)
+		g.syncMu.Unlock()
+		return ctx.Err()
+	case <-time.After(120 * time.Second):
+		g.syncMu.Lock()
+		delete(g.pendingSyncs, reqID)
+		g.syncMu.Unlock()
+		return fmt.Errorf("history sync timeout after 120s")
+	}
+}
+
+func (g *GossipManager) sendHistoryPullRequest(ps *pendingSync) {
+	sinceNano := int64(0)
+	if syncTime := g.stateMgr.GetHistorySyncTime(); !syncTime.IsZero() {
+		sinceNano = syncTime.UnixNano()
+	}
+	reqPayload, err := EncodePayload(&HistoryPullRequestPayload{
+		RequestID:     ps.reqID,
+		SinceUnixNano: sinceNano,
+		Offset:        ps.offset,
+		Limit:         500,
+	})
+	if err != nil {
+		slog.Warn("history pull: encode request failed", "req_id", ps.reqID, "error", err)
+		g.failPendingSync(ps, err)
+		return
+	}
+	msg := NewGossipMessage(MsgHistoryPullRequest, g.localNode, reqPayload)
+	data, err := EncodeMessage(msg)
+	if err != nil {
+		slog.Warn("history pull: encode message failed", "req_id", ps.reqID, "error", err)
+		g.failPendingSync(ps, err)
+		return
+	}
+	if err := g.list.SendReliable(ps.peer, data); err != nil {
+		slog.Warn("history pull: send request failed", "req_id", ps.reqID, "peer", ps.peer.Name, "error", err)
+		g.failPendingSync(ps, err)
+	}
+}
+
+func (g *GossipManager) failPendingSync(ps *pendingSync, err error) {
+	g.syncMu.Lock()
+	if _, ok := g.pendingSyncs[ps.reqID]; ok {
+		delete(g.pendingSyncs, ps.reqID)
+		g.syncMu.Unlock()
+		ps.done <- err
+		close(ps.done)
+	} else {
+		g.syncMu.Unlock()
 	}
 }
 

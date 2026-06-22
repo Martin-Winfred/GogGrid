@@ -45,6 +45,10 @@ type HistoryRecord struct {
 	DiskUsage    float64      `gorm:"column:disk_usage"`
 	NetInterface NetInterface `gorm:"embedded;embeddedPrefix:net_"`
 	SystemLoad   SystemLoad   `gorm:"embedded;embeddedPrefix:sys_"`
+	Version      int64        `json:"version"    gorm:"column:version;index"`
+	EventType    string       `json:"event_type" gorm:"column:event_type;index;default:metric_update"`
+	Status       string       `json:"status"     gorm:"column:status"`
+	Source       string       `json:"source"     gorm:"column:source;index;default:local"`
 }
 
 // VectorClock tracks causal ordering of state updates across nodes.
@@ -103,4 +107,5 @@ type ClusterState struct {
 	Nodes       map[string]*NodeState `json:"nodes"`
 	LocalNodeID string                `json:"local_node_id"`
 	UpdatedAt   time.Time             `json:"updated_at"`
+	Epoch       int64                 `json:"epoch"`
 }

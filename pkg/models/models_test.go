@@ -3,6 +3,7 @@ package models
 import (
 	"encoding/json"
 	"testing"
+	"time"
 )
 
 func TestVectorClockIncrement(t *testing.T) {
@@ -108,6 +109,62 @@ func TestNodeStateJSONRoundtrip(t *testing.T) {
 	}
 	if decoded.Version != ns.Version {
 		t.Errorf("Version mismatch: got %d, want %d", decoded.Version, ns.Version)
+	}
+}
+
+func TestHistoryRecordNewFields(t *testing.T) {
+	hr := HistoryRecord{
+		NodeID:    "node-1",
+		Version:   5,
+		EventType: "node_join",
+		Status:    "active",
+		Source:    "gossip",
+		Timestamp: time.Now(),
+		CPUUsage:  42.5,
+	}
+
+	data, err := json.Marshal(hr)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	var decoded HistoryRecord
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	if decoded.Version != 5 {
+		t.Errorf("Version mismatch: got %d, want 5", decoded.Version)
+	}
+	if decoded.EventType != "node_join" {
+		t.Errorf("EventType mismatch: got %q, want %q", decoded.EventType, "node_join")
+	}
+	if decoded.Status != "active" {
+		t.Errorf("Status mismatch: got %q, want %q", decoded.Status, "active")
+	}
+	if decoded.Source != "gossip" {
+		t.Errorf("Source mismatch: got %q, want %q", decoded.Source, "gossip")
+	}
+	if decoded.CPUUsage != 42.5 {
+		t.Errorf("CPUUsage mismatch: got %f, want 42.5", decoded.CPUUsage)
+	}
+}
+
+func TestHistoryRecordEventTypes(t *testing.T) {
+	tests := []struct {
+		name      string
+		eventType string
+	}{
+		{"metric_update", "metric_update"},
+		{"node_join", "node_join"},
+		{"node_leave", "node_leave"},
+	}
+
+	for _, tt := range tests {
+		hr := HistoryRecord{EventType: tt.eventType}
+		if hr.EventType != tt.eventType {
+			t.Errorf("%s: EventType = %q, want %q", tt.name, hr.EventType, tt.eventType)
+		}
 	}
 }
 
