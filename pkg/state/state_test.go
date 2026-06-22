@@ -313,6 +313,42 @@ func TestMergeNodeStateDuplicateVersionIgnored(t *testing.T) {
 	}
 }
 
+func TestMergeNodeStateDoesNotBlockReads(t *testing.T) {
+	s, err := storage.New(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	sm := NewStateManager("test", "local", s)
+
+	done := make(chan struct{})
+
+	// Writer goroutine: continuously merge node state to provoke I/O under load
+	go func() {
+		defer close(done)
+		for i := int64(0); i < 200; i++ {
+			remote := makeNodeState("writer-node", i, float64(i), time.Now())
+			sm.MergeNodeState(remote)
+		}
+	}()
+
+	// Reader: repeatedly call GetClusterState, verify it completes within 50ms
+	for i := 0; i < 60; i++ {
+		resultCh := make(chan struct{}, 1)
+		go func() {
+			sm.GetClusterState()
+			resultCh <- struct{}{}
+		}()
+		select {
+		case <-resultCh:
+			// read completed in time
+		case <-time.After(50 * time.Millisecond):
+			t.Fatal("GetClusterState blocked for more than 50ms during MergeNodeState writes")
+		}
+	}
+	<-done
+}
+
 func TestGetSetHistorySyncTime(t *testing.T) {
 	s, _ := storage.New(":memory:")
 	defer s.Close()

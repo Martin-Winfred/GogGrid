@@ -99,7 +99,6 @@ func (sm *StateManager) UpdateLocalNode(ns *models.NodeState) {
 // MergeNodeState merges remote node state, returns whether changed
 func (sm *StateManager) MergeNodeState(remote *models.NodeState) bool {
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
 	local, exists := sm.clusterState.Nodes[remote.NodeID]
 	if !exists {
 		// New node joined
@@ -111,6 +110,7 @@ func (sm *StateManager) MergeNodeState(remote *models.NodeState) bool {
 			EventType: "join",
 			NodeState: &copyRemote,
 		})
+		sm.mu.Unlock()
 		sm.recordEvent(&copyRemote, "node_join", "gossip")
 		return true
 	}
@@ -118,10 +118,10 @@ func (sm *StateManager) MergeNodeState(remote *models.NodeState) bool {
 	winner := sm.resolveConflict(local, remote)
 	// Check if update is actually needed
 	if winner == local {
+		sm.mu.Unlock()
 		return false
 	}
 	copyWinner := *winner
-	sm.recordEvent(&copyWinner, "metric_update", "gossip")
 	sm.clusterState.Nodes[remote.NodeID] = &copyWinner
 	sm.clusterState.UpdatedAt = time.Now()
 	sm.broadcast(NodeChangeEvent{
@@ -129,6 +129,8 @@ func (sm *StateManager) MergeNodeState(remote *models.NodeState) bool {
 		EventType: "update",
 		NodeState: &copyWinner,
 	})
+	sm.mu.Unlock()
+	sm.recordEvent(&copyWinner, "metric_update", "gossip")
 	return true
 }
 
@@ -151,19 +153,22 @@ func (sm *StateManager) resolveConflict(local, remote *models.NodeState) *models
 // MarkNodeInactive marks a node as inactive
 func (sm *StateManager) MarkNodeInactive(nodeID string) {
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	if ns, ok := sm.clusterState.Nodes[nodeID]; ok {
-		copyNode := *ns
-		copyNode.Status = "inactive"
-		sm.recordEvent(&copyNode, "node_leave", "gossip")
-		sm.clusterState.Nodes[nodeID] = &copyNode
-		sm.clusterState.UpdatedAt = time.Now()
-		sm.broadcast(NodeChangeEvent{
-			NodeID:    nodeID,
-			EventType: "leave",
-			NodeState: &copyNode,
-		})
+	ns, ok := sm.clusterState.Nodes[nodeID]
+	if !ok {
+		sm.mu.Unlock()
+		return
 	}
+	copyNode := *ns
+	copyNode.Status = "inactive"
+	sm.clusterState.Nodes[nodeID] = &copyNode
+	sm.clusterState.UpdatedAt = time.Now()
+	sm.broadcast(NodeChangeEvent{
+		NodeID:    nodeID,
+		EventType: "leave",
+		NodeState: &copyNode,
+	})
+	sm.mu.Unlock()
+	sm.recordEvent(&copyNode, "node_leave", "gossip")
 }
 
 // RemoveNode removes a node from cluster state
