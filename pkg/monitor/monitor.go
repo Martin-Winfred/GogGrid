@@ -3,6 +3,7 @@ package monitor
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"runtime"
@@ -44,7 +45,9 @@ func StartCPUSampler(ctx context.Context, interval time.Duration) {
 		// Collect first sample immediately so there is data available
 		// on the very first GetHostMonitor() call.
 		samples, err := cpu.Percent(0, false)
-		if err == nil {
+		if err != nil {
+			slog.Warn("CPU percent sample failed", "error", err)
+		} else {
 			cpuMu.Lock()
 			cpuPercentCache = samples
 			cpuMu.Unlock()
@@ -57,6 +60,7 @@ func StartCPUSampler(ctx context.Context, interval time.Duration) {
 			case <-ticker.C:
 				samples, err := cpu.Percent(0, false)
 				if err != nil {
+					slog.Warn("CPU percent sample failed", "error", err)
 					continue
 				}
 				cpuMu.Lock()
@@ -94,9 +98,19 @@ type HostMonitor struct {
 // GetHostMonitor returns system monitoring data
 func GetHostMonitor() (hostMonitor HostMonitor, err error) {
 	staticOnce.Do(func() {
-		cachedHostname, _ = os.Hostname()
-		cachedKernelVer, _ = host.KernelVersion()
-		cachedPlatform, cachedFamily, cachedVersion, _ = host.PlatformInformation()
+		var err error
+		cachedHostname, err = os.Hostname()
+		if err != nil {
+			slog.Warn("hostname lookup failed", "error", err)
+		}
+		cachedKernelVer, err = host.KernelVersion()
+		if err != nil {
+			slog.Warn("kernel version lookup failed", "error", err)
+		}
+		cachedPlatform, cachedFamily, cachedVersion, err = host.PlatformInformation()
+		if err != nil {
+			slog.Warn("platform information lookup failed", "error", err)
+		}
 	})
 
 	hostMonitor.Arch = runtime.GOARCH

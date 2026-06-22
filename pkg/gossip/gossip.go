@@ -290,6 +290,7 @@ func (g *GossipManager) handleMessage(data []byte) {
 	case MsgNodeState:
 		var payload NodeStatePayload
 		if err := DecodePayload(msg.Payload, &payload); err != nil {
+			slog.Warn("node state decode failed", "error", err)
 			return
 		}
 		if payload.State != nil {
@@ -298,6 +299,7 @@ func (g *GossipManager) handleMessage(data []byte) {
 	case MsgClusterSync:
 		var payload ClusterSyncPayload
 		if err := DecodePayload(msg.Payload, &payload); err != nil {
+			slog.Warn("cluster sync decode failed", "error", err)
 			return
 		}
 		for _, ns := range payload.Nodes {
@@ -325,11 +327,13 @@ func (g *GossipManager) handleMessage(data []byte) {
 func (g *GossipManager) handleMergeRemoteState(buf []byte, join bool) {
 	msg, err := DecodeMessage(buf)
 	if err != nil {
+		slog.Warn("merge remote state: message decode failed", "error", err)
 		return
 	}
 	if msg.Type == MsgClusterSync {
 		var payload ClusterSyncPayload
 		if err := DecodePayload(msg.Payload, &payload); err != nil {
+			slog.Warn("merge remote state: payload decode failed", "error", err)
 			return
 		}
 		for _, ns := range payload.Nodes {
@@ -469,6 +473,9 @@ func (g *GossipManager) SyncHistoryOnJoin(ctx context.Context) error {
 		}
 	}()
 
+	timer := time.NewTimer(120 * time.Second)
+	defer timer.Stop()
+
 	select {
 	case err := <-ps.done:
 		if err != nil {
@@ -480,7 +487,7 @@ func (g *GossipManager) SyncHistoryOnJoin(ctx context.Context) error {
 		delete(g.pendingSyncs, reqID)
 		g.syncMu.Unlock()
 		return ctx.Err()
-	case <-time.After(120 * time.Second):
+	case <-timer.C:
 		g.syncMu.Lock()
 		delete(g.pendingSyncs, reqID)
 		g.syncMu.Unlock()

@@ -125,7 +125,13 @@ func (h *wsHub) Stop() {
 
 // readPump reads WebSocket messages (handles ping/pong/close)
 func (c *wsClient) readPump() {
-	defer func() { c.hub.unregister <- c; c.conn.Close() }()
+	defer func() {
+		select {
+		case c.hub.unregister <- c:
+		default:
+			c.conn.Close()
+		}
+	}()
 	c.conn.SetReadLimit(512)
 	c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	c.conn.SetPongHandler(func(string) error {
@@ -135,6 +141,9 @@ func (c *wsClient) readPump() {
 	for {
 		_, _, err := c.conn.ReadMessage()
 		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
+				slog.Warn("WebSocket read error", "error", err)
+			}
 			break
 		}
 	}
@@ -155,6 +164,7 @@ func (c *wsClient) writePump() {
 				return
 			}
 			if err := c.conn.WriteMessage(websocket.TextMessage, message); err != nil {
+				slog.Warn("WebSocket write error", "error", err)
 				return
 			}
 		case <-ticker.C:
