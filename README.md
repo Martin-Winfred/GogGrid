@@ -46,7 +46,7 @@ It does **not** aim to provide:
 | 🕐 **LWW Conflict Resolution** | Last-Writer-Wins with scalar version (VectorClock reserved for future fast-sync) |
 | 🔒 **API Token Auth** | Optional Bearer token authentication for REST API and WebSocket |
 | 🌐 **REST API** | Cluster state, node details, time-series history queries |
-| 🔌 **WebSocket Push** | Real-time updates on node state changes |
+| 🔌 **WebSocket Push** | Real-time updates on node state changes (configurable origin whitelist, disabled by default) |
 | 💾 **SQLite Persistence** | Embedded database, configurable history retention |
 | 🛡️ **Graceful Shutdown** | SIGINT/SIGTERM → LIFO cleanup (API → Gossip → Storage) |
 
@@ -125,6 +125,9 @@ api:
   bind_addr: "0.0.0.0"
   port: 8080
   token: ""
+  ws:
+    enabled: false
+    allowed_origins: []
 
 gossip:
   sync_interval: 30s
@@ -160,6 +163,8 @@ CLI flags  >  Environment variables  >  YAML file  >  Defaults
 | `--discovery-type` | `udp` | Discovery protocol (`udp`, `mdns`) |
 | `--discovery-port` | `7947` | Discovery port |
 | `--discovery-interval` | `3s` | Discovery broadcast interval (e.g. `3s`, `5s`) |
+| `--ws-enabled` | `false` | Enable WebSocket endpoint (`true`/`false`) |
+| `--ws-allowed-origins` | — | Comma-separated WebSocket origin whitelist |
 
 ### Environment Variables
 
@@ -173,6 +178,8 @@ CLI flags  >  Environment variables  >  YAML file  >  Defaults
 | `GOGGRID_DISCOVERY_TYPE` | `discovery.type` |
 | `GOGGRID_DISCOVERY_PORT` | `discovery.port` |
 | `GOGGRID_DISCOVERY_INTERVAL` | `discovery.interval` |
+| `GOGGRID_WS_ENABLED` | `api.ws.enabled` |
+| `GOGGRID_WS_ALLOWED_ORIGINS` | `api.ws.allowed_origins` |
 
 ## API Reference
 
