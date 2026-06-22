@@ -1,10 +1,12 @@
 package state
 
 import (
+	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/Martin-Winfred/GogGrid/pkg/models"
+	"github.com/Martin-Winfred/GogGrid/pkg/storage"
 )
 
 // NodeChangeEvent represents a node change event
@@ -16,13 +18,14 @@ type NodeChangeEvent struct {
 
 // StateManager manages cluster state
 type StateManager struct {
-	mu           sync.RWMutex
-	clusterState *models.ClusterState
-	subscribers  map[chan NodeChangeEvent]struct{}
+	mu              sync.RWMutex
+	clusterState    *models.ClusterState
+	subscribers     map[chan NodeChangeEvent]struct{}
+	store           *storage.Storage
+	historySyncTime time.Time
 }
 
-// NewStateManager creates a state manager
-func NewStateManager(clusterName, localNodeID string) *StateManager {
+func NewStateManager(clusterName, localNodeID string, store *storage.Storage) *StateManager {
 	return &StateManager{
 		clusterState: &models.ClusterState{
 			ClusterName: clusterName,
@@ -31,6 +34,7 @@ func NewStateManager(clusterName, localNodeID string) *StateManager {
 			UpdatedAt:   time.Now(),
 		},
 		subscribers: make(map[chan NodeChangeEvent]struct{}),
+		store:       store,
 	}
 }
 
@@ -64,6 +68,20 @@ func (sm *StateManager) GetNode(nodeID string) (*models.NodeState, bool) {
 	return &copyNode, true
 }
 
+// GetHistorySyncTime returns the timestamp of the last successful history sync.
+func (sm *StateManager) GetHistorySyncTime() time.Time {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return sm.historySyncTime
+}
+
+// SetHistorySyncTime updates the history sync timestamp.
+func (sm *StateManager) SetHistorySyncTime(t time.Time) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.historySyncTime = t
+}
+
 // UpdateLocalNode updates local node state
 func (sm *StateManager) UpdateLocalNode(ns *models.NodeState) {
 	sm.mu.Lock()
@@ -81,7 +99,6 @@ func (sm *StateManager) UpdateLocalNode(ns *models.NodeState) {
 // MergeNodeState merges remote node state, returns whether changed
 func (sm *StateManager) MergeNodeState(remote *models.NodeState) bool {
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
 	local, exists := sm.clusterState.Nodes[remote.NodeID]
 	if !exists {
 		// New node joined
@@ -93,12 +110,15 @@ func (sm *StateManager) MergeNodeState(remote *models.NodeState) bool {
 			EventType: "join",
 			NodeState: &copyRemote,
 		})
+		sm.mu.Unlock()
+		sm.recordEvent(&copyRemote, "node_join", "gossip")
 		return true
 	}
 	// Already exists, perform conflict resolution
 	winner := sm.resolveConflict(local, remote)
 	// Check if update is actually needed
 	if winner == local {
+		sm.mu.Unlock()
 		return false
 	}
 	copyWinner := *winner
@@ -109,6 +129,8 @@ func (sm *StateManager) MergeNodeState(remote *models.NodeState) bool {
 		EventType: "update",
 		NodeState: &copyWinner,
 	})
+	sm.mu.Unlock()
+	sm.recordEvent(&copyWinner, "metric_update", "gossip")
 	return true
 }
 
@@ -131,18 +153,22 @@ func (sm *StateManager) resolveConflict(local, remote *models.NodeState) *models
 // MarkNodeInactive marks a node as inactive
 func (sm *StateManager) MarkNodeInactive(nodeID string) {
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	if ns, ok := sm.clusterState.Nodes[nodeID]; ok {
-		copyNode := *ns
-		copyNode.Status = "inactive"
-		sm.clusterState.Nodes[nodeID] = &copyNode
-		sm.clusterState.UpdatedAt = time.Now()
-		sm.broadcast(NodeChangeEvent{
-			NodeID:    nodeID,
-			EventType: "leave",
-			NodeState: &copyNode,
-		})
+	ns, ok := sm.clusterState.Nodes[nodeID]
+	if !ok {
+		sm.mu.Unlock()
+		return
 	}
+	copyNode := *ns
+	copyNode.Status = "inactive"
+	sm.clusterState.Nodes[nodeID] = &copyNode
+	sm.clusterState.UpdatedAt = time.Now()
+	sm.broadcast(NodeChangeEvent{
+		NodeID:    nodeID,
+		EventType: "leave",
+		NodeState: &copyNode,
+	})
+	sm.mu.Unlock()
+	sm.recordEvent(&copyNode, "node_leave", "gossip")
 }
 
 // RemoveNode removes a node from cluster state
@@ -192,5 +218,28 @@ func (sm *StateManager) sendEvent(ch chan NodeChangeEvent, event NodeChangeEvent
 	select {
 	case ch <- event:
 	default:
+	}
+}
+
+// recordEvent writes a HistoryRecord for a node state change.
+func (sm *StateManager) recordEvent(ns *models.NodeState, eventType string, source string) {
+	if sm.store == nil {
+		return
+	}
+	hr := &models.HistoryRecord{
+		NodeID:       ns.NodeID,
+		Version:      ns.Version,
+		EventType:    eventType,
+		Source:       source,
+		Timestamp:    ns.LastUpdated,
+		CPUUsage:     ns.CPUUsage,
+		MemoryUsage:  ns.MemoryUsage,
+		DiskUsage:    ns.DiskUsage,
+		NetInterface: ns.NetInterface,
+		SystemLoad:   ns.SystemLoad,
+		Status:       ns.Status,
+	}
+	if err := sm.store.SaveHistoryRecord(hr); err != nil {
+		slog.Warn("failed to record history event", "node", ns.NodeID, "type", eventType, "error", err)
 	}
 }

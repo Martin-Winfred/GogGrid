@@ -32,6 +32,8 @@ func main() {
 	discoveryType := flag.String("discovery-type", "", "discovery protocol (udp, mdns)")
 	discoveryPort := flag.String("discovery-port", "", "discovery port")
 	discoveryInterval := flag.String("discovery-interval", "", "discovery interval (e.g. 3s, 5s)")
+	wsEnabled := flag.String("ws-enabled", "", "enable WebSocket (true/false)")
+	wsAllowedOrigins := flag.String("ws-allowed-origins", "", "comma-separated WebSocket allowed origins")
 	flag.Parse()
 
 	// 1. Load config (defaults → auto goggrid.yaml → env → CLI)
@@ -54,7 +56,7 @@ func main() {
 		}
 	}
 	config.ApplyEnv(cfg)
-	config.ParseFlags(cfg, *clusterName, *bindAddr, *apiBind, *apiToken, *seeds, *discoveryEnabled, *discoveryType, *discoveryPort, *discoveryInterval)
+	config.ParseFlags(cfg, *clusterName, *bindAddr, *apiBind, *apiToken, *seeds, *discoveryEnabled, *discoveryType, *discoveryPort, *discoveryInterval, *wsEnabled, *wsAllowedOrigins)
 
 	// 2. Initialize structured logging
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -83,11 +85,11 @@ func main() {
 	slog.Info("storage init complete", "db_path", cfg.Storage.DBPath)
 
 	// 5. Create state manager
-	stateMgr := state.NewStateManager(cfg.Cluster.Name, nodeID)
+	stateMgr := state.NewStateManager(cfg.Cluster.Name, nodeID, store)
 	slog.Info("state manager init complete")
 
 	// 6. Start Gossip communication layer
-	gossipMgr, err := gossip.New(cfg, stateMgr)
+	gossipMgr, err := gossip.New(cfg, stateMgr, store)
 	if err != nil {
 		slog.Error("gossip init failed", "error", err)
 		store.Close()
@@ -100,6 +102,20 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("gossip communication layer started", "members", gossipMgr.NumMembers())
+
+	// Create context for monitor loop, cleanup loop, and history sync
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Trigger history backfill when joining a cluster with existing members
+	if gossipMgr.NumMembers() > 1 {
+		go func() {
+			slog.Info("starting history sync from existing peer")
+			if err := gossipMgr.SyncHistoryOnJoin(ctx); err != nil {
+				slog.Warn("history sync failed", "error", err)
+			}
+		}()
+	}
 
 	// 7. Start API service
 	var apiSrv *api.APIServer
@@ -114,8 +130,6 @@ func main() {
 	}
 
 	// 8. Start monitoring loop
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	// Start background CPU sampler so GetHostMonitor() does not block
 	monitor.StartCPUSampler(ctx, cfg.Monitor.Interval)
@@ -190,7 +204,15 @@ func collectAndPublish(nodeID string, stateMgr *state.StateManager,
 	}
 
 	ns := hm.ToNodeState(nodeID)
-	ns.Version++ // increment version
+
+	// Recover and increment Version: memory → SQLite → default 1
+	if existing, exists := stateMgr.GetNode(nodeID); exists {
+		ns.Version = existing.Version + 1
+	} else if persisted, err := store.GetNodeState(nodeID); err == nil {
+		ns.Version = persisted.Version + 1
+	} else {
+		ns.Version = 1
+	}
 	ns.LastUpdated = time.Now()
 	ns.LastSeen = time.Now()
 	ns.Status = "active"
@@ -208,9 +230,12 @@ func collectAndPublish(nodeID string, stateMgr *state.StateManager,
 		slog.Warn("state persist failed", "error", err)
 	}
 
-	// Save history record
+	// Save history record with event metadata for dedup and audit
 	hr := &models.HistoryRecord{
 		NodeID:       nodeID,
+		Version:      ns.Version,
+		EventType:    "metric_update",
+		Source:       "local",
 		Timestamp:    time.Now(),
 		CPUUsage:     ns.CPUUsage,
 		MemoryUsage:  ns.MemoryUsage,

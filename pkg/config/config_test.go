@@ -88,6 +88,12 @@ func TestLoadValidYAML(t *testing.T) {
 	if cfg.API.Enabled == nil || !*cfg.API.Enabled {
 		t.Error("API should be enabled when YAML sets enabled: true")
 	}
+	if cfg.API.WS.Enabled == nil || !*cfg.API.WS.Enabled {
+		t.Error("WS should be enabled when YAML sets ws.enabled: true")
+	}
+	if len(cfg.API.WS.AllowedOrigins) != 2 {
+		t.Errorf("expected 2 allowed origins, got %d", len(cfg.API.WS.AllowedOrigins))
+	}
 	if cfg.Gossip.SyncInterval != 60*time.Second {
 		t.Errorf("sync interval = %v", cfg.Gossip.SyncInterval)
 	}
@@ -219,7 +225,7 @@ func TestParseFlagsBindAddr(t *testing.T) {
 
 func TestParseFlagsSeeds(t *testing.T) {
 	cfg := DefaultConfig()
-	ParseFlags(cfg, "", "", "", "", "10.0.0.1:7946,10.0.0.2:7946", "", "", "", "")
+	ParseFlags(cfg, "", "", "", "", "10.0.0.1:7946,10.0.0.2:7946", "", "", "", "", "", "")
 	if len(cfg.Cluster.Seeds) != 2 {
 		t.Errorf("expected 2 seeds, got %d", len(cfg.Cluster.Seeds))
 	}
@@ -230,7 +236,7 @@ func TestParseFlagsSeeds(t *testing.T) {
 
 func TestParseFlagsSeedsWithWhitespace(t *testing.T) {
 	cfg := DefaultConfig()
-	ParseFlags(cfg, "", "", "", "", " 10.0.0.1:7946 , 10.0.0.2:7946 ,, ", "", "", "", "")
+	ParseFlags(cfg, "", "", "", "", " 10.0.0.1:7946 , 10.0.0.2:7946 ,, ", "", "", "", "", "", "")
 	if len(cfg.Cluster.Seeds) != 2 {
 		t.Errorf("expected 2 seeds after trimming, got %d: %v", len(cfg.Cluster.Seeds), cfg.Cluster.Seeds)
 	}
@@ -238,7 +244,7 @@ func TestParseFlagsSeedsWithWhitespace(t *testing.T) {
 
 func TestParseFlagsDiscovery(t *testing.T) {
 	cfg := DefaultConfig()
-	ParseFlags(cfg, "", "", "", "", "", "true", "mdns", "8888", "")
+	ParseFlags(cfg, "", "", "", "", "", "true", "mdns", "8888", "", "", "")
 	if cfg.Discovery.Enabled == nil || !*cfg.Discovery.Enabled {
 		t.Error("discovery should be enabled")
 	}
@@ -252,13 +258,97 @@ func TestParseFlagsDiscovery(t *testing.T) {
 
 func TestParseFlagsDiscoveryInvalid(t *testing.T) {
 	cfg := DefaultConfig()
-	ParseFlags(cfg, "", "", "", "", "", "bogus", "", "not-a-number", "")
+	ParseFlags(cfg, "", "", "", "", "", "bogus", "", "not-a-number", "", "", "")
 	// Should keep defaults
 	if cfg.Discovery.Enabled == nil || !*cfg.Discovery.Enabled {
 		t.Error("discovery should still be enabled (invalid flag ignored)")
 	}
 	if cfg.Discovery.Port != 7947 {
 		t.Errorf("discovery port should be default 7947, got %d", cfg.Discovery.Port)
+	}
+}
+
+func TestWSDefaults(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.API.WS.Enabled == nil || *cfg.API.WS.Enabled {
+		t.Error("WebSocket should be disabled by default")
+	}
+	if len(cfg.API.WS.AllowedOrigins) != 0 {
+		t.Errorf("allowed origins should be empty by default, got %v", cfg.API.WS.AllowedOrigins)
+	}
+}
+
+func TestParseFlagsWS(t *testing.T) {
+	cfg := DefaultConfig()
+	ParseFlags(cfg, "", "", "", "", "", "", "", "", "", "true", "http://a.com,http://b.com")
+	if cfg.API.WS.Enabled == nil || !*cfg.API.WS.Enabled {
+		t.Error("WS should be enabled")
+	}
+	if len(cfg.API.WS.AllowedOrigins) != 2 {
+		t.Errorf("expected 2 allowed origins, got %d", len(cfg.API.WS.AllowedOrigins))
+	}
+	if cfg.API.WS.AllowedOrigins[0] != "http://a.com" {
+		t.Errorf("origin[0] = %s", cfg.API.WS.AllowedOrigins[0])
+	}
+}
+
+func TestParseFlagsWSInvalid(t *testing.T) {
+	cfg := DefaultConfig()
+	ParseFlags(cfg, "", "", "", "", "", "", "", "", "", "bogus", "")
+	if cfg.API.WS.Enabled == nil || *cfg.API.WS.Enabled {
+		t.Error("WS should still be disabled (invalid flag ignored)")
+	}
+}
+
+func TestApplyEnvWS(t *testing.T) {
+	cfg := DefaultConfig()
+	t.Setenv("GOGGRID_WS_ENABLED", "true")
+	t.Setenv("GOGGRID_WS_ALLOWED_ORIGINS", "http://a.com,http://b.com")
+	ApplyEnv(cfg)
+	if cfg.API.WS.Enabled == nil || !*cfg.API.WS.Enabled {
+		t.Error("WS should be enabled via env")
+	}
+	if len(cfg.API.WS.AllowedOrigins) != 2 {
+		t.Errorf("expected 2 allowed origins, got %d", len(cfg.API.WS.AllowedOrigins))
+	}
+}
+
+func TestApplyEnvWSInvalid(t *testing.T) {
+	cfg := DefaultConfig()
+	t.Setenv("GOGGRID_WS_ENABLED", "bogus")
+	ApplyEnv(cfg)
+	if cfg.API.WS.Enabled == nil || *cfg.API.WS.Enabled {
+		t.Error("WS should still be disabled (invalid env ignored)")
+	}
+}
+
+func TestMergeConfigWS(t *testing.T) {
+	dst := DefaultConfig()
+	src := DefaultConfig()
+	src.API.WS.Enabled = boolPtr(true)
+	src.API.WS.AllowedOrigins = []string{"http://example.com"}
+
+	mergeConfig(dst, src)
+
+	if dst.API.WS.Enabled == nil || !*dst.API.WS.Enabled {
+		t.Error("WS should be enabled after merge")
+	}
+	if len(dst.API.WS.AllowedOrigins) != 1 || dst.API.WS.AllowedOrigins[0] != "http://example.com" {
+		t.Errorf("allowed origins should be merged, got %v", dst.API.WS.AllowedOrigins)
+	}
+}
+
+func TestMergeConfigWSNilEnabled(t *testing.T) {
+	dst := DefaultConfig()
+	dst.API.WS.Enabled = boolPtr(true)
+
+	src := DefaultConfig()
+	src.API.WS.Enabled = nil
+
+	mergeConfig(dst, src)
+
+	if dst.API.WS.Enabled == nil || !*dst.API.WS.Enabled {
+		t.Error("WS should stay enabled when src enabled is nil")
 	}
 }
 
@@ -365,6 +455,8 @@ func TestGenerateDefault(t *testing.T) {
 		"api:",
 		"gossip:",
 		"discovery:",
+		"ws:",
+		"allowed_origins:",
 		"enabled: true",
 		"type: \"udp\"",
 		"port: 7947",

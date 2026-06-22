@@ -9,10 +9,12 @@ import (
 
 // Message type constants
 const (
-	MsgNodeState   = 0 // node state update
-	MsgClusterSync = 1 // cluster full sync
-	MsgHeartbeat   = 2 // heartbeat
-	MsgDiscovery   = 3 // discovery broadcast
+	MsgNodeState           = 0 // node state update
+	MsgClusterSync         = 1 // cluster full sync
+	MsgHeartbeat           = 2 // heartbeat
+	MsgDiscovery           = 3 // discovery broadcast
+	MsgHistoryPullRequest  = 4 // history data pull request
+	MsgHistoryPullResponse = 5 // history data pull response
 )
 
 // GossipMessage is a generic message wrapper
@@ -31,6 +33,23 @@ type NodeStatePayload struct {
 // ClusterSyncPayload carries full cluster sync data
 type ClusterSyncPayload struct {
 	Nodes []*models.NodeState `msgpack:"nodes"`
+}
+
+// HistoryPullRequestPayload requests history records from a peer.
+type HistoryPullRequestPayload struct {
+	RequestID     string `msgpack:"req_id"`
+	SinceUnixNano int64  `msgpack:"since"`
+	Offset        int    `msgpack:"offset"`
+	Limit         int    `msgpack:"limit"`
+}
+
+// HistoryPullResponsePayload carries a batch of history records.
+type HistoryPullResponsePayload struct {
+	RequestID  string                  `msgpack:"req_id"`
+	Records    []*models.HistoryRecord `msgpack:"records"`
+	HasMore    bool                    `msgpack:"has_more"`
+	NextOffset int                     `msgpack:"next_offset"`
+	TotalCount int                     `msgpack:"total_count"`
 }
 
 type DiscoveryMessage struct {

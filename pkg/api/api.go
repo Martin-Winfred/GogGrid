@@ -29,14 +29,16 @@ func New(cfg *config.Config, stateMgr *state.StateManager, store *storage.Storag
 		cfg:      cfg,
 		stateMgr: stateMgr,
 		store:    store,
-		wsHub:    newWSHub(stateMgr),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/health", a.handleHealth)
 	mux.HandleFunc("/api/cluster", a.handleCluster)
 	mux.HandleFunc("/api/nodes", a.handleNodes)
 	mux.HandleFunc("/api/nodes/", a.handleNodeDetail) // matches /api/nodes/{id} and /api/nodes/{id}/history
-	mux.HandleFunc("/ws", a.handleWebSocket)
+	if cfg.API.WS.Enabled != nil && *cfg.API.WS.Enabled {
+		a.wsHub = newWSHub(stateMgr, cfg.API.WS.AllowedOrigins)
+		mux.HandleFunc("/ws", a.handleWebSocket)
+	}
 	// Middleware wrapping
 	handler := authMiddleware(cfg.API.Token)(loggingMiddleware(corsMiddleware(recoveryMiddleware(mux))))
 	a.srv = &http.Server{
@@ -51,13 +53,17 @@ func New(cfg *config.Config, stateMgr *state.StateManager, store *storage.Storag
 // Start starts API service
 func (a *APIServer) Start() error {
 	slog.Info("API service starting", "addr", a.srv.Addr)
-	go a.wsHub.Run()
+	if a.wsHub != nil {
+		go a.wsHub.Run()
+	}
 	return a.srv.ListenAndServe()
 }
 
 // Stop gracefully shuts down
 func (a *APIServer) Stop(ctx context.Context) error {
-	a.wsHub.Stop()
+	if a.wsHub != nil {
+		a.wsHub.Stop()
+	}
 	return a.srv.Shutdown(ctx)
 }
 
@@ -165,7 +171,7 @@ func (a *APIServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	conn, err := upgrader.Upgrade(w, r, nil)
+	conn, err := a.wsHub.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		slog.Warn("WebSocket upgrade failed", "error", err)
 		return
