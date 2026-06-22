@@ -403,11 +403,12 @@ func TestImportHistoryRecordsUniqueConstraint(t *testing.T) {
 	s, _ := New(":memory:")
 	defer s.Close()
 
-	now := time.Now()
+	t1 := time.Now()
+	t2 := t1.Add(1 * time.Hour)
 
-	// (A, 1, metric_update) → success
+	// (A, t1, metric_update) → inserted
 	n, err := s.ImportHistoryRecords([]*models.HistoryRecord{{
-		NodeID: "A", Version: 1, EventType: "metric_update", Timestamp: now,
+		NodeID: "A", Version: 1, EventType: "metric_update", Timestamp: t1,
 	}})
 	if err != nil {
 		t.Fatalf("case 1 failed: %v", err)
@@ -416,9 +417,9 @@ func TestImportHistoryRecordsUniqueConstraint(t *testing.T) {
 		t.Errorf("case 1 inserted = %d, want 1", n)
 	}
 
-	// (A, 1, node_leave) → success (different EventType)
+	// (A, t1, node_leave) → inserted (different EventType, same timestamp)
 	n, err = s.ImportHistoryRecords([]*models.HistoryRecord{{
-		NodeID: "A", Version: 1, EventType: "node_leave", Timestamp: now,
+		NodeID: "A", Version: 1, EventType: "node_leave", Timestamp: t1,
 	}})
 	if err != nil {
 		t.Fatalf("case 2 failed: %v", err)
@@ -427,20 +428,20 @@ func TestImportHistoryRecordsUniqueConstraint(t *testing.T) {
 		t.Errorf("case 2 inserted = %d, want 1", n)
 	}
 
-	// (A, 2, metric_update) → success (different Version)
+	// (A, t1, metric_update) again → skipped (duplicate on node_id+timestamp+event_type)
 	n, err = s.ImportHistoryRecords([]*models.HistoryRecord{{
-		NodeID: "A", Version: 2, EventType: "metric_update", Timestamp: now,
+		NodeID: "A", Version: 2, EventType: "metric_update", Timestamp: t1,
 	}})
 	if err != nil {
 		t.Fatalf("case 3 failed: %v", err)
 	}
-	if n != 1 {
-		t.Errorf("case 3 inserted = %d, want 1", n)
+	if n != 0 {
+		t.Errorf("case 3 inserted = %d, want 0", n)
 	}
 
-	// (B, 1, metric_update) → success (different NodeID)
+	// (A, t2, metric_update) → inserted (different timestamp)
 	n, err = s.ImportHistoryRecords([]*models.HistoryRecord{{
-		NodeID: "B", Version: 1, EventType: "metric_update", Timestamp: now,
+		NodeID: "A", Version: 3, EventType: "metric_update", Timestamp: t2,
 	}})
 	if err != nil {
 		t.Fatalf("case 4 failed: %v", err)
@@ -449,14 +450,14 @@ func TestImportHistoryRecordsUniqueConstraint(t *testing.T) {
 		t.Errorf("case 4 inserted = %d, want 1", n)
 	}
 
-	// (A, 1, metric_update) again → skipped
+	// (B, t1, metric_update) → inserted (different NodeID)
 	n, err = s.ImportHistoryRecords([]*models.HistoryRecord{{
-		NodeID: "A", Version: 1, EventType: "metric_update", Timestamp: now.Add(1 * time.Hour),
+		NodeID: "B", Version: 1, EventType: "metric_update", Timestamp: t1,
 	}})
 	if err != nil {
 		t.Fatalf("case 5 failed: %v", err)
 	}
-	if n != 0 {
-		t.Errorf("case 5 inserted = %d, want 0", n)
+	if n != 1 {
+		t.Errorf("case 5 inserted = %d, want 1", n)
 	}
 }

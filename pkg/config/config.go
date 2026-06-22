@@ -157,6 +157,8 @@ func ParseFlags(cfg *Config, clusterName, bindAddr, apiBind, apiToken, seeds, di
 			} else {
 				cfg.Cluster.BindPort = p
 			}
+		} else {
+			log.Printf("WARNING: invalid bind address %q: %v", bindAddr, err)
 		}
 	}
 	if apiBind != "" {
@@ -167,6 +169,8 @@ func ParseFlags(cfg *Config, clusterName, bindAddr, apiBind, apiToken, seeds, di
 			} else {
 				cfg.API.Port = p
 			}
+		} else {
+			log.Printf("WARNING: invalid API bind address %q: %v", apiBind, err)
 		}
 	}
 	if apiToken != "" {
@@ -179,6 +183,9 @@ func ParseFlags(cfg *Config, clusterName, bindAddr, apiBind, apiToken, seeds, di
 		if b, err := strconv.ParseBool(discoveryEnabled); err != nil {
 			log.Printf("WARNING: invalid --discovery-enabled %q: %v", discoveryEnabled, err)
 		} else {
+			if cfg.Discovery.Enabled == nil {
+				cfg.Discovery.Enabled = new(bool)
+			}
 			*cfg.Discovery.Enabled = b
 		}
 	}
@@ -233,6 +240,9 @@ func ApplyEnv(cfg *Config) {
 		if b, err := strconv.ParseBool(v); err != nil {
 			log.Printf("WARNING: invalid GOGGRID_DISCOVERY_ENABLED %q: %v", v, err)
 		} else {
+			if cfg.Discovery.Enabled == nil {
+				cfg.Discovery.Enabled = new(bool)
+			}
 			*cfg.Discovery.Enabled = b
 		}
 	}

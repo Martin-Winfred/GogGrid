@@ -169,14 +169,35 @@ func GetHostMonitor() (hostMonitor HostMonitor, err error) {
 	return hostMonitor, nil
 }
 
-// GetLocalIP returns the local outbound IP address
+// GetLocalIP returns the local outbound IP address.
+// It first enumerates network interfaces to find a non-loopback IPv4
+// address. If that fails, it falls back to a UDP dial to determine the
+// outbound IP used for the default route.
 func GetLocalIP() (string, error) {
+	ifaces, err := net.Interfaces()
+	if err == nil {
+		for _, iface := range ifaces {
+			if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+				continue
+			}
+			addrs, err := iface.Addrs()
+			if err != nil {
+				continue
+			}
+			for _, addr := range addrs {
+				if ipnet, ok := addr.(*net.IPNet); ok {
+					if ip4 := ipnet.IP.To4(); ip4 != nil && !ip4.IsLoopback() {
+						return ip4.String(), nil
+					}
+				}
+			}
+		}
+	}
 	conn, err := net.Dial("udp", "8.8.8.8:80")
 	if err != nil {
-		return "", fmt.Errorf("failed to dial: %w", err)
+		return "", fmt.Errorf("failed to determine local IP: %w", err)
 	}
 	defer conn.Close()
-
 	localAddr, ok := conn.LocalAddr().(*net.UDPAddr)
 	if !ok {
 		return "", fmt.Errorf("unexpected local address type: %T", conn.LocalAddr())

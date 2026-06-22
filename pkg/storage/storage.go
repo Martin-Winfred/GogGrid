@@ -44,8 +44,17 @@ func New(dbPath string) (*Storage, error) {
 		return nil, fmt.Errorf("set busy timeout: %w", err)
 	}
 
-	// Create unique index for deduplication of history events by (node_id, version, event_type)
-	if _, err := sqlDB.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_history_node_version_event ON history_records(node_id, version, event_type)"); err != nil {
+	// Migrate from old version-based unique index to timestamp-based.
+	// The version-based index caused Source field loss: when the same
+	// (node_id, version, event_type) arrived via multiple paths
+	// (local, gossip, sync), ON CONFLICT DO NOTHING kept only the
+	// first writer's Source. Using timestamp instead of version
+	// avoids this because a node cannot generate two events of the
+	// same type in the same microsecond.
+	if _, err := sqlDB.Exec("DROP INDEX IF EXISTS idx_history_node_version_event"); err != nil {
+		return nil, fmt.Errorf("drop old unique index: %w", err)
+	}
+	if _, err := sqlDB.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_history_node_timestamp_event ON history_records(node_id, timestamp, event_type)"); err != nil {
 		return nil, fmt.Errorf("create unique index: %w", err)
 	}
 
@@ -90,7 +99,7 @@ func (s *Storage) DeleteNodeState(nodeID string) error {
 }
 
 // SaveHistoryRecord saves a history record, silently skipping duplicates
-// identified by the unique constraint on (node_id, version, event_type).
+// identified by the unique constraint on (node_id, timestamp, event_type).
 func (s *Storage) SaveHistoryRecord(hr *models.HistoryRecord) error {
 	return s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(hr).Error
 }
@@ -155,7 +164,7 @@ func (s *Storage) GetLatestHistoryTime() (time.Time, error) {
 }
 
 // ImportHistoryRecords bulk-imports history records pulled from a remote peer.
-// Uses ON CONFLICT DO NOTHING to skip duplicates (same node_id + version + event_type).
+// Uses ON CONFLICT DO NOTHING to skip duplicates (same node_id + timestamp + event_type).
 // Returns the number of rows actually inserted.
 func (s *Storage) ImportHistoryRecords(records []*models.HistoryRecord) (int64, error) {
 	if len(records) == 0 {

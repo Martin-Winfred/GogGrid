@@ -105,7 +105,7 @@ func (g *GossipManager) Start() error {
 	}
 
 	// Start auto-discovery if enabled
-	if *g.cfg.Discovery.Enabled {
+	if g.cfg.Discovery.Enabled != nil && *g.cfg.Discovery.Enabled {
 		switch g.cfg.Discovery.Type {
 		case "udp":
 			g.discovery = newUDPDiscovery(g.cfg.Discovery, g.cfg.Cluster.Name)
@@ -159,7 +159,7 @@ func (g *GossipManager) BroadcastLocalState(ns *models.NodeState) error {
 	if err != nil {
 		return fmt.Errorf("failed to encode message: %w", err)
 	}
-	g.broadcast.QueueBroadcast(&simpleBroadcast{msg: data})
+	g.broadcast.QueueBroadcast(&simpleBroadcast{msg: data, nodeID: ns.NodeID})
 	return nil
 }
 
@@ -396,9 +396,15 @@ func (g *GossipManager) handleHistoryPullResponse(payload *HistoryPullResponsePa
 		g.failPendingSync(ps, err)
 		return
 	}
+	g.syncMu.Lock()
 	ps.total += inserted
-
+	hasMore := payload.HasMore
 	if payload.HasMore {
+		ps.offset = payload.NextOffset
+	}
+	g.syncMu.Unlock()
+
+	if hasMore {
 		const maxPages = 100
 		if ps.offset/ps.limit >= maxPages {
 			g.failPendingSync(ps, fmt.Errorf("history sync exceeded max pages (%d)", maxPages))
@@ -410,7 +416,6 @@ func (g *GossipManager) handleHistoryPullResponse(payload *HistoryPullResponsePa
 			return
 		}
 		g.syncMu.Unlock()
-		ps.offset = payload.NextOffset
 		go g.sendHistoryPullRequest(ps)
 	} else {
 		latestTime, err := g.store.GetLatestHistoryTime()
@@ -488,10 +493,13 @@ func (g *GossipManager) sendHistoryPullRequest(ps *pendingSync) {
 	if syncTime := g.stateMgr.GetHistorySyncTime(); !syncTime.IsZero() {
 		sinceNano = syncTime.UnixNano()
 	}
+	g.syncMu.Lock()
+	offset := ps.offset
+	g.syncMu.Unlock()
 	reqPayload, err := EncodePayload(&HistoryPullRequestPayload{
 		RequestID:     ps.reqID,
 		SinceUnixNano: sinceNano,
-		Offset:        ps.offset,
+		Offset:        offset,
 		Limit:         500,
 	})
 	if err != nil {
@@ -527,10 +535,14 @@ func (g *GossipManager) failPendingSync(ps *pendingSync, err error) {
 // ====== Broadcast implementation ======
 
 type simpleBroadcast struct {
-	msg []byte
+	msg    []byte
+	nodeID string
 }
 
 func (b *simpleBroadcast) Invalidates(other memberlist.Broadcast) bool {
+	if o, ok := other.(*simpleBroadcast); ok {
+		return b.nodeID == o.nodeID
+	}
 	return false
 }
 
