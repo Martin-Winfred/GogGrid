@@ -30,19 +30,19 @@ jobs:
 
           GOOS=linux GOARCH=amd64 \
           go build -trimpath -ldflags="-s -w" \
-          -o build/goggrid-linux-amd64 ./cmd/goggrid
+          -o build/goggrid-linux-amd64 ./cmd/GogGrid
 
           GOOS=darwin GOARCH=amd64 \
           go build -trimpath -ldflags="-s -w" \
-          -o build/goggrid-darwin-amd64 ./cmd/goggrid
+          -o build/goggrid-darwin-amd64 ./cmd/GogGrid
 
           GOOS=darwin GOARCH=arm64 \
           go build -trimpath -ldflags="-s -w" \
-          -o build/goggrid-darwin-arm64 ./cmd/goggrid
+          -o build/goggrid-darwin-arm64 ./cmd/GogGrid
 
           GOOS=windows GOARCH=amd64 \
           go build -trimpath -ldflags="-s -w" \
-          -o build/goggrid-windows-amd64.exe ./cmd/goggrid
+          -o build/goggrid-windows-amd64.exe ./cmd/GogGrid
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
