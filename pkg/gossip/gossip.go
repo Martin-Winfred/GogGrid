@@ -105,7 +105,7 @@ func (g *GossipManager) Start() error {
 	}
 
 	// Start auto-discovery if enabled
-	if *g.cfg.Discovery.Enabled {
+	if g.cfg.Discovery.Enabled != nil && *g.cfg.Discovery.Enabled {
 		switch g.cfg.Discovery.Type {
 		case "udp":
 			g.discovery = newUDPDiscovery(g.cfg.Discovery, g.cfg.Cluster.Name)
@@ -159,7 +159,7 @@ func (g *GossipManager) BroadcastLocalState(ns *models.NodeState) error {
 	if err != nil {
 		return fmt.Errorf("failed to encode message: %w", err)
 	}
-	g.broadcast.QueueBroadcast(&simpleBroadcast{msg: data})
+	g.broadcast.QueueBroadcast(&simpleBroadcast{msg: data, nodeID: ns.NodeID})
 	return nil
 }
 
@@ -290,6 +290,7 @@ func (g *GossipManager) handleMessage(data []byte) {
 	case MsgNodeState:
 		var payload NodeStatePayload
 		if err := DecodePayload(msg.Payload, &payload); err != nil {
+			slog.Warn("node state decode failed", "error", err)
 			return
 		}
 		if payload.State != nil {
@@ -298,6 +299,7 @@ func (g *GossipManager) handleMessage(data []byte) {
 	case MsgClusterSync:
 		var payload ClusterSyncPayload
 		if err := DecodePayload(msg.Payload, &payload); err != nil {
+			slog.Warn("cluster sync decode failed", "error", err)
 			return
 		}
 		for _, ns := range payload.Nodes {
@@ -325,11 +327,13 @@ func (g *GossipManager) handleMessage(data []byte) {
 func (g *GossipManager) handleMergeRemoteState(buf []byte, join bool) {
 	msg, err := DecodeMessage(buf)
 	if err != nil {
+		slog.Warn("merge remote state: message decode failed", "error", err)
 		return
 	}
 	if msg.Type == MsgClusterSync {
 		var payload ClusterSyncPayload
 		if err := DecodePayload(msg.Payload, &payload); err != nil {
+			slog.Warn("merge remote state: payload decode failed", "error", err)
 			return
 		}
 		for _, ns := range payload.Nodes {
@@ -396,9 +400,15 @@ func (g *GossipManager) handleHistoryPullResponse(payload *HistoryPullResponsePa
 		g.failPendingSync(ps, err)
 		return
 	}
+	g.syncMu.Lock()
 	ps.total += inserted
-
+	hasMore := payload.HasMore
 	if payload.HasMore {
+		ps.offset = payload.NextOffset
+	}
+	g.syncMu.Unlock()
+
+	if hasMore {
 		const maxPages = 100
 		if ps.offset/ps.limit >= maxPages {
 			g.failPendingSync(ps, fmt.Errorf("history sync exceeded max pages (%d)", maxPages))
@@ -410,7 +420,6 @@ func (g *GossipManager) handleHistoryPullResponse(payload *HistoryPullResponsePa
 			return
 		}
 		g.syncMu.Unlock()
-		ps.offset = payload.NextOffset
 		go g.sendHistoryPullRequest(ps)
 	} else {
 		latestTime, err := g.store.GetLatestHistoryTime()
@@ -464,6 +473,9 @@ func (g *GossipManager) SyncHistoryOnJoin(ctx context.Context) error {
 		}
 	}()
 
+	timer := time.NewTimer(120 * time.Second)
+	defer timer.Stop()
+
 	select {
 	case err := <-ps.done:
 		if err != nil {
@@ -475,7 +487,7 @@ func (g *GossipManager) SyncHistoryOnJoin(ctx context.Context) error {
 		delete(g.pendingSyncs, reqID)
 		g.syncMu.Unlock()
 		return ctx.Err()
-	case <-time.After(120 * time.Second):
+	case <-timer.C:
 		g.syncMu.Lock()
 		delete(g.pendingSyncs, reqID)
 		g.syncMu.Unlock()
@@ -488,10 +500,13 @@ func (g *GossipManager) sendHistoryPullRequest(ps *pendingSync) {
 	if syncTime := g.stateMgr.GetHistorySyncTime(); !syncTime.IsZero() {
 		sinceNano = syncTime.UnixNano()
 	}
+	g.syncMu.Lock()
+	offset := ps.offset
+	g.syncMu.Unlock()
 	reqPayload, err := EncodePayload(&HistoryPullRequestPayload{
 		RequestID:     ps.reqID,
 		SinceUnixNano: sinceNano,
-		Offset:        ps.offset,
+		Offset:        offset,
 		Limit:         500,
 	})
 	if err != nil {
@@ -527,10 +542,14 @@ func (g *GossipManager) failPendingSync(ps *pendingSync, err error) {
 // ====== Broadcast implementation ======
 
 type simpleBroadcast struct {
-	msg []byte
+	msg    []byte
+	nodeID string
 }
 
 func (b *simpleBroadcast) Invalidates(other memberlist.Broadcast) bool {
+	if o, ok := other.(*simpleBroadcast); ok {
+		return b.nodeID == o.nodeID
+	}
 	return false
 }
 

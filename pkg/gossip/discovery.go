@@ -35,9 +35,19 @@ func newDiscoveryBase(clusterName string) *discoveryBase {
 func (db *discoveryBase) isNew(addr string) bool {
 	db.mu.Lock()
 	defer db.mu.Unlock()
+
+	now := time.Now()
+	// Clean up stale entries older than 5x cooldown to prevent unbounded growth
+	// of the seenAddrs map over long-running processes.
+	for a, t := range db.seenAddrs {
+		if now.Sub(t) > 5*db.cooldown {
+			delete(db.seenAddrs, a)
+		}
+	}
+
 	lastSeen, exists := db.seenAddrs[addr]
-	if !exists || time.Since(lastSeen) > db.cooldown {
-		db.seenAddrs[addr] = time.Now()
+	if !exists || now.Sub(lastSeen) > db.cooldown {
+		db.seenAddrs[addr] = now
 		return true
 	}
 	return false

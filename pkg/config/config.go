@@ -152,21 +152,25 @@ func ParseFlags(cfg *Config, clusterName, bindAddr, apiBind, apiToken, seeds, di
 	if bindAddr != "" {
 		if host, port, err := net.SplitHostPort(bindAddr); err == nil {
 			cfg.Cluster.BindAddr = host
-			if p, err := strconv.Atoi(port); err != nil {
-				log.Printf("WARNING: invalid bind port %q: %v", port, err)
+			if p, err := strconv.Atoi(port); err != nil || p <= 0 {
+				log.Printf("WARNING: invalid bind port %q, using default %d", port, cfg.Cluster.BindPort)
 			} else {
 				cfg.Cluster.BindPort = p
 			}
+		} else {
+			log.Printf("WARNING: invalid bind address %q: %v", bindAddr, err)
 		}
 	}
 	if apiBind != "" {
 		if host, port, err := net.SplitHostPort(apiBind); err == nil {
 			cfg.API.BindAddr = host
-			if p, err := strconv.Atoi(port); err != nil {
-				log.Printf("WARNING: invalid API port %q: %v", port, err)
+			if p, err := strconv.Atoi(port); err != nil || p <= 0 {
+				log.Printf("WARNING: invalid API port %q, using default %d", port, cfg.API.Port)
 			} else {
 				cfg.API.Port = p
 			}
+		} else {
+			log.Printf("WARNING: invalid API bind address %q: %v", apiBind, err)
 		}
 	}
 	if apiToken != "" {
@@ -179,15 +183,23 @@ func ParseFlags(cfg *Config, clusterName, bindAddr, apiBind, apiToken, seeds, di
 		if b, err := strconv.ParseBool(discoveryEnabled); err != nil {
 			log.Printf("WARNING: invalid --discovery-enabled %q: %v", discoveryEnabled, err)
 		} else {
+			if cfg.Discovery.Enabled == nil {
+				cfg.Discovery.Enabled = new(bool)
+			}
 			*cfg.Discovery.Enabled = b
 		}
 	}
 	if discoveryType != "" {
-		cfg.Discovery.Type = discoveryType
+		switch discoveryType {
+		case "udp", "mdns":
+			cfg.Discovery.Type = discoveryType
+		default:
+			log.Printf("WARNING: unknown discovery type %q, using default %q", discoveryType, cfg.Discovery.Type)
+		}
 	}
 	if discoveryPort != "" {
-		if p, err := strconv.Atoi(discoveryPort); err != nil {
-			log.Printf("WARNING: invalid --discovery-port %q: %v", discoveryPort, err)
+		if p, err := strconv.Atoi(discoveryPort); err != nil || p <= 0 {
+			log.Printf("WARNING: invalid --discovery-port %q, using default %d", discoveryPort, cfg.Discovery.Port)
 		} else {
 			cfg.Discovery.Port = p
 		}
@@ -217,8 +229,8 @@ func ApplyEnv(cfg *Config) {
 		cfg.Cluster.Name = v
 	}
 	if v := os.Getenv("GOGGRID_API_PORT"); v != "" {
-		if p, err := strconv.Atoi(v); err != nil {
-			log.Printf("WARNING: invalid GOGGRID_API_PORT %q: %v", v, err)
+		if p, err := strconv.Atoi(v); err != nil || p <= 0 {
+			log.Printf("WARNING: invalid GOGGRID_API_PORT %q, using default %d", v, cfg.API.Port)
 		} else {
 			cfg.API.Port = p
 		}
@@ -233,15 +245,23 @@ func ApplyEnv(cfg *Config) {
 		if b, err := strconv.ParseBool(v); err != nil {
 			log.Printf("WARNING: invalid GOGGRID_DISCOVERY_ENABLED %q: %v", v, err)
 		} else {
+			if cfg.Discovery.Enabled == nil {
+				cfg.Discovery.Enabled = new(bool)
+			}
 			*cfg.Discovery.Enabled = b
 		}
 	}
 	if v := os.Getenv("GOGGRID_DISCOVERY_TYPE"); v != "" {
-		cfg.Discovery.Type = v
+		switch v {
+		case "udp", "mdns":
+			cfg.Discovery.Type = v
+		default:
+			log.Printf("WARNING: unknown GOGGRID_DISCOVERY_TYPE %q, using default %q", v, cfg.Discovery.Type)
+		}
 	}
 	if v := os.Getenv("GOGGRID_DISCOVERY_PORT"); v != "" {
-		if p, err := strconv.Atoi(v); err != nil {
-			log.Printf("WARNING: invalid GOGGRID_DISCOVERY_PORT %q: %v", v, err)
+		if p, err := strconv.Atoi(v); err != nil || p <= 0 {
+			log.Printf("WARNING: invalid GOGGRID_DISCOVERY_PORT %q, using default %d", v, cfg.Discovery.Port)
 		} else {
 			cfg.Discovery.Port = p
 		}
@@ -272,7 +292,7 @@ func mergeConfig(dst, src *Config) {
 	if src.Cluster.BindAddr != "" {
 		dst.Cluster.BindAddr = src.Cluster.BindAddr
 	}
-	if src.Cluster.BindPort != 0 {
+	if src.Cluster.BindPort > 0 {
 		dst.Cluster.BindPort = src.Cluster.BindPort
 	}
 	if len(src.Cluster.Seeds) > 0 {
@@ -293,7 +313,7 @@ func mergeConfig(dst, src *Config) {
 	if src.API.BindAddr != "" {
 		dst.API.BindAddr = src.API.BindAddr
 	}
-	if src.API.Port != 0 {
+	if src.API.Port > 0 {
 		dst.API.Port = src.API.Port
 	}
 	if src.API.Token != "" {
@@ -312,9 +332,14 @@ func mergeConfig(dst, src *Config) {
 		dst.Gossip.ProbeInterval = src.Gossip.ProbeInterval
 	}
 	if src.Discovery.Type != "" {
-		dst.Discovery.Type = src.Discovery.Type
+		switch src.Discovery.Type {
+		case "udp", "mdns":
+			dst.Discovery.Type = src.Discovery.Type
+		default:
+			log.Printf("WARNING: unknown discovery type %q in YAML, keeping default %q", src.Discovery.Type, dst.Discovery.Type)
+		}
 	}
-	if src.Discovery.Port != 0 {
+	if src.Discovery.Port > 0 {
 		dst.Discovery.Port = src.Discovery.Port
 	}
 	if src.Discovery.Interval != 0 {
@@ -323,6 +348,29 @@ func mergeConfig(dst, src *Config) {
 	if src.Discovery.Enabled != nil {
 		*dst.Discovery.Enabled = *src.Discovery.Enabled
 	}
+}
+
+// Validate checks that the configuration is logically consistent.
+// It returns the first validation error found, or nil if valid.
+func (c *Config) Validate() error {
+	if c.Cluster.BindPort <= 0 {
+		return fmt.Errorf("cluster.bind_port must be > 0, got %d", c.Cluster.BindPort)
+	}
+	if c.API.Port <= 0 {
+		return fmt.Errorf("api.port must be > 0, got %d", c.API.Port)
+	}
+	if c.Discovery.Port <= 0 {
+		return fmt.Errorf("discovery.port must be > 0, got %d", c.Discovery.Port)
+	}
+	if c.Cluster.Name == "" {
+		return errors.New("cluster.name must not be empty")
+	}
+	switch c.Discovery.Type {
+	case "udp", "mdns":
+	default:
+		return fmt.Errorf("discovery.type must be \"udp\" or \"mdns\", got %q", c.Discovery.Type)
+	}
+	return nil
 }
 
 // splitSeeds splits a comma-separated seed string into a slice,

@@ -122,7 +122,7 @@ func TestNewGossipMessage(t *testing.T) {
 }
 
 func TestSimpleBroadcast(t *testing.T) {
-	b := &simpleBroadcast{msg: []byte("hello")}
+	b := &simpleBroadcast{msg: []byte("hello"), nodeID: "test-node"}
 	if string(b.Message()) != "hello" {
 		t.Error("message mismatch")
 	}
