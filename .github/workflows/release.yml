@@ -5,51 +5,42 @@ on:
     tags:
       - 'v*'
 
-permissions:
-  contents: write
-
 jobs:
   release:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
-          go-version: '1.26'
-          cache: true
+          go-version-file: go.mod
 
-      - name: Build binaries
+      - name: Build
         run: |
           mkdir -p build
 
-          GOOS=linux GOARCH=amd64 \
-          go build -trimpath -ldflags="-s -w" \
-          -o build/goggrid-linux-amd64 ./cmd/GogGrid
+          for target in \
+            "linux amd64" \
+            "darwin amd64" \
+            "darwin arm64" \
+            "windows amd64"
+          do
+            set -- $target
 
-          GOOS=darwin GOARCH=amd64 \
-          go build -trimpath -ldflags="-s -w" \
-          -o build/goggrid-darwin-amd64 ./cmd/GogGrid
+            ext=""
+            [ "$1" = windows ] && ext=".exe"
 
-          GOOS=darwin GOARCH=arm64 \
-          go build -trimpath -ldflags="-s -w" \
-          -o build/goggrid-darwin-arm64 ./cmd/GogGrid
+            GOOS=$1 GOARCH=$2 \
+            go build \
+              -trimpath \
+              -ldflags="-s -w" \
+              -o build/goggrid-$1-$2$ext \
+              ./cmd/GogGrid
+          done
 
-          GOOS=windows GOARCH=amd64 \
-          go build -trimpath -ldflags="-s -w" \
-          -o build/goggrid-windows-amd64.exe ./cmd/GogGrid
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v2
         with:
           files: build/*
-          generate_release_notes: true
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
