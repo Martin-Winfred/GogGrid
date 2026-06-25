@@ -43,7 +43,7 @@ It does **not** aim to provide:
 | 📡 **Gossip Protocol** | State propagation, failure detection, anti-entropy via [hashicorp/memberlist](https://github.com/hashicorp/memberlist) |
 | 🔍 **Auto-Discovery** | Pluggable node discovery — UDP broadcast or mDNS (LAN); cluster-name filtering + dedup |
 | 📊 **System Metrics** | CPU, memory, disk, load averages, network I/O per node |
-| 🕐 **LWW Conflict Resolution** | Last-Writer-Wins with scalar version (VectorClock reserved for future fast-sync) |
+| 🕐 **VectorClock Conflict Resolution** | Causal ordering via VectorClock, with Last-Writer-Wins fallback for concurrent writes |
 | 🔒 **API Token Auth** | Optional Bearer token authentication for REST API and WebSocket |
 | 🌐 **REST API** | Cluster state, node details, time-series history queries |
 | 🔌 **WebSocket Push** | Real-time updates on node state changes (configurable origin whitelist, disabled by default) |
@@ -222,7 +222,7 @@ curl http://localhost:8080/api/cluster | jq
         "load_avg_15min": 0.5
       },
       "last_seen": "2026-06-08T00:00:00Z",
-      "version": 42
+      "clock": { "node1": 42, "node2": 37 }
     },
     "node2": {
       "node_id": "node2",
@@ -243,7 +243,7 @@ curl http://localhost:8080/api/cluster | jq
         "load_avg_15min": 0.5
       },
       "last_seen": "2026-06-08T00:00:01Z",
-      "version": 37
+      "clock": { "node1": 42, "node2": 37 }
     }
   },
   "local_node_id": "node1",
@@ -268,7 +268,7 @@ pkg/
 │   └── discovery_mdns.go    mDNS LAN discovery
 ├── models/models.go         Shared types + VectorClock
 ├── monitor/monitor.go       System metrics (gopsutil)
-├── state/state.go           In-memory cluster state + LWW
+├── state/state.go           In-memory cluster state + VectorClock conflict resolution
 └── storage/storage.go       GORM + SQLite persistence
 ```
 

@@ -8,7 +8,7 @@ import (
 	"github.com/Martin-Winfred/GogGrid/pkg/storage"
 )
 
-func makeNodeState(nodeID string, version int64, cpu float64, updated time.Time) *models.NodeState {
+func makeNodeState(nodeID string, clock models.VectorClock, cpu float64, updated time.Time) *models.NodeState {
 	return &models.NodeState{
 		NodeID:      nodeID,
 		IPAddress:   "10.0.0.1",
@@ -18,7 +18,7 @@ func makeNodeState(nodeID string, version int64, cpu float64, updated time.Time)
 		DiskUsage:   30.0,
 		LastSeen:    updated,
 		LastUpdated: updated,
-		Version:     version,
+		Clock:       clock,
 	}
 }
 
@@ -38,20 +38,20 @@ func TestNewStateManager(t *testing.T) {
 
 func TestUpdateLocalNode(t *testing.T) {
 	sm := NewStateManager("Test", "local1", nil)
-	ns := makeNodeState("local1", 1, 50.0, time.Now())
+	ns := makeNodeState("local1", models.VectorClock{"local1": 1}, 50.0, time.Now())
 	sm.UpdateLocalNode(ns)
 	cs := sm.GetClusterState()
 	if len(cs.Nodes) != 1 {
 		t.Fatalf("node count = %d, want 1", len(cs.Nodes))
 	}
-	if cs.Nodes["local1"].Version != 1 {
-		t.Errorf("version = %d", cs.Nodes["local1"].Version)
+	if cs.Nodes["local1"].Clock["local1"] != 1 {
+		t.Errorf("clock entry = %d", cs.Nodes["local1"].Clock["local1"])
 	}
 }
 
 func TestGetClusterStateDeepCopy(t *testing.T) {
 	sm := NewStateManager("Test", "local1", nil)
-	ns := makeNodeState("local1", 1, 50.0, time.Now())
+	ns := makeNodeState("local1", models.VectorClock{"local1": 1}, 50.0, time.Now())
 	sm.UpdateLocalNode(ns)
 	cs := sm.GetClusterState()
 	// modifying copy should not affect internal state
@@ -64,7 +64,7 @@ func TestGetClusterStateDeepCopy(t *testing.T) {
 
 func TestMergeNewNode(t *testing.T) {
 	sm := NewStateManager("Test", "local1", nil)
-	remote := makeNodeState("remote1", 1, 80.0, time.Now())
+	remote := makeNodeState("remote1", models.VectorClock{"remote1": 1}, 80.0, time.Now())
 	changed := sm.MergeNodeState(remote)
 	if !changed {
 		t.Error("new node should return changed=true")
@@ -78,9 +78,9 @@ func TestMergeNewNode(t *testing.T) {
 func TestMergeNewerVersion(t *testing.T) {
 	sm := NewStateManager("Test", "local1", nil)
 	now := time.Now()
-	old := makeNodeState("remote1", 1, 50.0, now)
+	old := makeNodeState("remote1", models.VectorClock{"remote1": 1}, 50.0, now)
 	sm.MergeNodeState(old)
-	newer := makeNodeState("remote1", 2, 80.0, now.Add(time.Second))
+	newer := makeNodeState("remote1", models.VectorClock{"remote1": 2}, 80.0, now.Add(time.Second))
 	changed := sm.MergeNodeState(newer)
 	if !changed {
 		t.Error("higher version should trigger update")
@@ -94,9 +94,9 @@ func TestMergeNewerVersion(t *testing.T) {
 func TestMergeOlderVersion(t *testing.T) {
 	sm := NewStateManager("Test", "local1", nil)
 	now := time.Now()
-	new := makeNodeState("remote1", 2, 80.0, now)
+	new := makeNodeState("remote1", models.VectorClock{"remote1": 2}, 80.0, now)
 	sm.MergeNodeState(new)
-	older := makeNodeState("remote1", 1, 50.0, now.Add(-time.Hour))
+	older := makeNodeState("remote1", models.VectorClock{"remote1": 1}, 50.0, now.Add(-time.Hour))
 	changed := sm.MergeNodeState(older)
 	if changed {
 		t.Error("lower version should not override higher version")
@@ -111,10 +111,10 @@ func TestResolveConflictLWW(t *testing.T) {
 	sm := NewStateManager("Test", "local1", nil)
 	now := time.Now()
 	// insert node with same version
-	existing := makeNodeState("remote1", 1, 50.0, now)
+	existing := makeNodeState("remote1", models.VectorClock{"remote1": 1}, 50.0, now)
 	sm.MergeNodeState(existing)
 	// send same version but newer timestamp
-	newerTime := makeNodeState("remote1", 1, 60.0, now.Add(time.Minute))
+	newerTime := makeNodeState("remote1", models.VectorClock{"remote1": 1}, 60.0, now.Add(time.Minute))
 	changed := sm.MergeNodeState(newerTime)
 	if !changed {
 		t.Error("same version with newer timestamp should override")
@@ -124,7 +124,7 @@ func TestResolveConflictLWW(t *testing.T) {
 		t.Errorf("CPU = %v, want 60.0", cs.Nodes["remote1"].CPUUsage)
 	}
 	// send same version but older timestamp - should not overwrite
-	olderTime := makeNodeState("remote1", 1, 70.0, now.Add(-time.Minute))
+	olderTime := makeNodeState("remote1", models.VectorClock{"remote1": 1}, 70.0, now.Add(-time.Minute))
 	changed2 := sm.MergeNodeState(olderTime)
 	if changed2 {
 		t.Error("same version with older timestamp should not override")
@@ -135,7 +135,7 @@ func TestSubscribeNotify(t *testing.T) {
 	sm := NewStateManager("Test", "local1", nil)
 	ch := sm.Subscribe()
 	defer sm.Unsubscribe(ch)
-	ns := makeNodeState("local1", 1, 50.0, time.Now())
+	ns := makeNodeState("local1", models.VectorClock{"local1": 1}, 50.0, time.Now())
 	sm.UpdateLocalNode(ns)
 	select {
 	case event := <-ch:
@@ -163,7 +163,7 @@ func TestUnsubscribe(t *testing.T) {
 
 func TestMarkNodeInactive(t *testing.T) {
 	sm := NewStateManager("Test", "local1", nil)
-	sm.UpdateLocalNode(makeNodeState("local1", 1, 50.0, time.Now()))
+	sm.UpdateLocalNode(makeNodeState("local1", models.VectorClock{"local1": 1}, 50.0, time.Now()))
 	sm.MarkNodeInactive("local1")
 	ns, ok := sm.GetNode("local1")
 	if !ok {
@@ -176,7 +176,7 @@ func TestMarkNodeInactive(t *testing.T) {
 
 func TestMarkNodeInactiveDeepCopy(t *testing.T) {
 	sm := NewStateManager("Test", "local1", nil)
-	sm.UpdateLocalNode(makeNodeState("local1", 1, 50.0, time.Now()))
+	sm.UpdateLocalNode(makeNodeState("local1", models.VectorClock{"local1": 1}, 50.0, time.Now()))
 	sm.MarkNodeInactive("local1")
 
 	ns, ok := sm.GetNode("local1")
@@ -197,7 +197,7 @@ func TestMarkNodeInactiveDeepCopy(t *testing.T) {
 
 func TestRemoveNode(t *testing.T) {
 	sm := NewStateManager("Test", "local1", nil)
-	sm.UpdateLocalNode(makeNodeState("local1", 1, 50.0, time.Now()))
+	sm.UpdateLocalNode(makeNodeState("local1", models.VectorClock{"local1": 1}, 50.0, time.Now()))
 	sm.RemoveNode("local1")
 	_, ok := sm.GetNode("local1")
 	if ok {
@@ -207,7 +207,7 @@ func TestRemoveNode(t *testing.T) {
 
 func TestGetNode(t *testing.T) {
 	sm := NewStateManager("Test", "local1", nil)
-	sm.UpdateLocalNode(makeNodeState("local1", 1, 50.0, time.Now()))
+	sm.UpdateLocalNode(makeNodeState("local1", models.VectorClock{"local1": 1}, 50.0, time.Now()))
 	ns, ok := sm.GetNode("local1")
 	if !ok {
 		t.Fatal("node should exist")
@@ -226,7 +226,7 @@ func TestMergeNodeStateRecordsJoinEvent(t *testing.T) {
 	defer s.Close()
 	sm := NewStateManager("test", "local", s)
 
-	remote := makeNodeState("new-node", 1, 30.0, time.Now())
+	remote := makeNodeState("new-node", models.VectorClock{"new-node": 1}, 30.0, time.Now())
 	sm.MergeNodeState(remote)
 
 	records, err := s.GetNodeHistory("new-node", time.Time{}, time.Time{})
@@ -239,9 +239,6 @@ func TestMergeNodeStateRecordsJoinEvent(t *testing.T) {
 	if records[0].EventType != "node_join" {
 		t.Errorf("EventType = %q, want node_join", records[0].EventType)
 	}
-	if records[0].Version != 1 {
-		t.Errorf("Version = %d, want 1", records[0].Version)
-	}
 }
 
 func TestMergeNodeStateRecordsMetricEvent(t *testing.T) {
@@ -250,8 +247,8 @@ func TestMergeNodeStateRecordsMetricEvent(t *testing.T) {
 	sm := NewStateManager("test", "local", s)
 
 	now := time.Now()
-	sm.MergeNodeState(makeNodeState("remote", 1, 30.0, now))
-	sm.MergeNodeState(makeNodeState("remote", 2, 50.0, now.Add(time.Second)))
+	sm.MergeNodeState(makeNodeState("remote", models.VectorClock{"remote": 1}, 30.0, now))
+	sm.MergeNodeState(makeNodeState("remote", models.VectorClock{"remote": 2}, 50.0, now.Add(time.Second)))
 
 	records, err := s.GetNodeHistory("remote", time.Time{}, time.Time{})
 	if err != nil {
@@ -276,7 +273,7 @@ func TestMarkNodeInactiveRecordsLeaveEvent(t *testing.T) {
 	defer s.Close()
 	sm := NewStateManager("test", "local", s)
 
-	sm.UpdateLocalNode(makeNodeState("local", 1, 30.0, time.Now()))
+	sm.UpdateLocalNode(makeNodeState("local", models.VectorClock{"local": 1}, 30.0, time.Now()))
 	sm.MarkNodeInactive("local")
 
 	records, err := s.GetNodeHistory("local", time.Time{}, time.Time{})
@@ -300,7 +297,7 @@ func TestMergeNodeStateDuplicateVersionIgnored(t *testing.T) {
 	sm := NewStateManager("test", "local", s)
 
 	now := time.Now()
-	remote := makeNodeState("dup-node", 1, 30.0, now)
+	remote := makeNodeState("dup-node", models.VectorClock{"dup-node": 1}, 30.0, now)
 	sm.MergeNodeState(remote)
 	sm.MergeNodeState(remote)
 
@@ -327,7 +324,7 @@ func TestMergeNodeStateDoesNotBlockReads(t *testing.T) {
 	go func() {
 		defer close(done)
 		for i := int64(0); i < 200; i++ {
-			remote := makeNodeState("writer-node", i, float64(i), time.Now())
+			remote := makeNodeState("writer-node", models.VectorClock{"writer-node": i}, float64(i), time.Now())
 			sm.MergeNodeState(remote)
 		}
 	}()

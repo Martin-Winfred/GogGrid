@@ -49,8 +49,14 @@ func (sm *StateManager) GetClusterState() *models.ClusterState {
 		UpdatedAt:   sm.clusterState.UpdatedAt,
 	}
 	for k, v := range sm.clusterState.Nodes {
-		// Deep copy each node
+		// Deep copy each node, including the Clock map to prevent sharing
 		copyNode := *v
+		if v.Clock != nil {
+			copyNode.Clock = make(models.VectorClock, len(v.Clock))
+			for ck, cv := range v.Clock {
+				copyNode.Clock[ck] = cv
+			}
+		}
 		cs.Nodes[k] = &copyNode
 	}
 	return cs
@@ -65,6 +71,12 @@ func (sm *StateManager) GetNode(nodeID string) (*models.NodeState, bool) {
 		return nil, false
 	}
 	copyNode := *ns
+	if ns.Clock != nil {
+		copyNode.Clock = make(models.VectorClock, len(ns.Clock))
+		for ck, cv := range ns.Clock {
+			copyNode.Clock[ck] = cv
+		}
+	}
 	return &copyNode, true
 }
 
@@ -103,6 +115,9 @@ func (sm *StateManager) MergeNodeState(remote *models.NodeState) bool {
 	if !exists {
 		// New node joined
 		copyRemote := *remote
+		if copyRemote.Clock == nil {
+			copyRemote.Clock = make(models.VectorClock)
+		}
 		sm.clusterState.Nodes[remote.NodeID] = &copyRemote
 		sm.clusterState.UpdatedAt = time.Now()
 		sm.broadcast(NodeChangeEvent{
@@ -122,6 +137,10 @@ func (sm *StateManager) MergeNodeState(remote *models.NodeState) bool {
 		return false
 	}
 	copyWinner := *winner
+	if copyWinner.Clock == nil {
+		copyWinner.Clock = make(models.VectorClock)
+	}
+	copyWinner.Clock.Merge(local.Clock)
 	sm.clusterState.Nodes[remote.NodeID] = &copyWinner
 	sm.clusterState.UpdatedAt = time.Now()
 	sm.broadcast(NodeChangeEvent{
@@ -134,16 +153,17 @@ func (sm *StateManager) MergeNodeState(remote *models.NodeState) bool {
 	return true
 }
 
-// resolveConflict resolves conflicts: Version comparison → LastWriterWins
+// resolveConflict resolves conflicts using VectorClock for causal ordering,
+// falling back to Last-Writer-Wins when clocks are concurrent or equal.
 func (sm *StateManager) resolveConflict(local, remote *models.NodeState) *models.NodeState {
-	// 1. Version comparison (happened-after relationship)
-	if remote.Version > local.Version {
+	// 1. VectorClock comparison for happened-before detection
+	switch remote.Clock.Compare(local.Clock) {
+	case 1: // remote > local (remote happened-after)
 		return remote
-	}
-	if remote.Version < local.Version {
+	case -1: // local > remote (local happened-after)
 		return local
 	}
-	// 2. Versions equal, LWW: compare LastUpdated
+	// 2. Clocks are concurrent or equal: LWW on LastUpdated
 	if remote.LastUpdated.After(local.LastUpdated) {
 		return remote
 	}
@@ -228,7 +248,6 @@ func (sm *StateManager) recordEvent(ns *models.NodeState, eventType string, sour
 	}
 	hr := &models.HistoryRecord{
 		NodeID:       ns.NodeID,
-		Version:      ns.Version,
 		EventType:    eventType,
 		Source:       source,
 		Timestamp:    ns.LastUpdated,
