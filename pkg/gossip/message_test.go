@@ -44,11 +44,11 @@ func TestHistoryPullResponsePayloadRoundtrip(t *testing.T) {
 	original := &HistoryPullResponsePayload{
 		RequestID: "node-a-1718234567890123456",
 		Records: []*models.HistoryRecord{
-			{NodeID: "n1", Version: 1, EventType: "metric_update", Timestamp: now, CPUUsage: 42.0},
-			{NodeID: "n1", Version: 2, EventType: "metric_update", Timestamp: now.Add(5 * time.Second), CPUUsage: 45.0},
-			{NodeID: "n2", Version: 1, EventType: "node_join", Timestamp: now, CPUUsage: 0.0},
-			{NodeID: "n2", Version: 1, EventType: "metric_update", Timestamp: now.Add(1 * time.Second), CPUUsage: 30.0},
-			{NodeID: "n3", Version: 3, EventType: "metric_update", Timestamp: now.Add(10 * time.Second), CPUUsage: 80.0},
+			{NodeID: "n1", EventType: "metric_update", Timestamp: now, CPUUsage: 42.0},
+			{NodeID: "n1", EventType: "metric_update", Timestamp: now.Add(5 * time.Second), CPUUsage: 45.0},
+			{NodeID: "n2", EventType: "node_join", Timestamp: now, CPUUsage: 0.0},
+			{NodeID: "n2", EventType: "metric_update", Timestamp: now.Add(1 * time.Second), CPUUsage: 30.0},
+			{NodeID: "n3", EventType: "metric_update", Timestamp: now.Add(10 * time.Second), CPUUsage: 80.0},
 		},
 		HasMore:    true,
 		NextOffset: 500,
@@ -75,8 +75,8 @@ func TestHistoryPullResponsePayloadRoundtrip(t *testing.T) {
 		if rec.NodeID != original.Records[i].NodeID {
 			t.Errorf("Record[%d] NodeID expected %q, got %q", i, original.Records[i].NodeID, rec.NodeID)
 		}
-		if rec.Version != original.Records[i].Version {
-			t.Errorf("Record[%d] Version expected %d, got %d", i, original.Records[i].Version, rec.Version)
+		if rec.EventType != original.Records[i].EventType {
+			t.Errorf("Record[%d] EventType expected %q, got %q", i, original.Records[i].EventType, rec.EventType)
 		}
 	}
 	if decoded.HasMore != original.HasMore {

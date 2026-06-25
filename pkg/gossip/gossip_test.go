@@ -51,7 +51,7 @@ func TestNodeStatePayloadRoundtrip(t *testing.T) {
 		CPUUsage:    75.5,
 		LastSeen:    time.Now().Truncate(time.Second),
 		LastUpdated: time.Now().Truncate(time.Second),
-		Version:     5,
+		Clock:       models.VectorClock{"n1": 5},
 	}
 
 	payload, err := EncodePayload(&NodeStatePayload{State: ns})
@@ -73,8 +73,8 @@ func TestNodeStatePayloadRoundtrip(t *testing.T) {
 	if decoded.State.CPUUsage != ns.CPUUsage {
 		t.Errorf("CPUUsage expected %v, got %v", ns.CPUUsage, decoded.State.CPUUsage)
 	}
-	if decoded.State.Version != ns.Version {
-		t.Errorf("Version expected %d, got %d", ns.Version, decoded.State.Version)
+	if decoded.State.Clock["n1"] != ns.Clock["n1"] {
+		t.Errorf("Clock[n1] expected %d, got %d", ns.Clock["n1"], decoded.State.Clock["n1"])
 	}
 	if decoded.State.IPAddress != ns.IPAddress {
 		t.Errorf("IPAddress expected %s, got %s", ns.IPAddress, decoded.State.IPAddress)
@@ -252,7 +252,6 @@ func seedHistoryRecords(t *testing.T, store *storage.Storage, nodeID string, cou
 	for i := range count {
 		hr := &models.HistoryRecord{
 			NodeID:    nodeID,
-			Version:   int64(i + 1),
 			EventType: "metric_update",
 			Timestamp: base.Add(time.Duration(i) * time.Second),
 			CPUUsage:  float64(i % 100),

@@ -138,8 +138,8 @@ func TestToNodeState(t *testing.T) {
 	if ns.LastUpdated.IsZero() {
 		t.Error("NodeState.LastUpdated is zero time")
 	}
-	if ns.Version != 0 {
-		t.Errorf("NodeState.Version = %d, want %d", ns.Version, 0)
+	if len(ns.Clock) != 0 {
+		t.Errorf("NodeState.Clock should be nil/empty before collectAndPublish, got %d entries", len(ns.Clock))
 	}
 }
 
