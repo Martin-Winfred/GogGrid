@@ -262,6 +262,6 @@ func (h *HostMonitor) ToNodeState(nodeID string) *models.NodeState {
 		},
 		LastSeen:    now,
 		LastUpdated: now,
-		// Version is managed by collectAndPublish, initialized to 0 here
+		// Clock is initialized and incremented by collectAndPublish
 	}
 }

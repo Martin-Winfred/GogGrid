@@ -73,7 +73,7 @@ func TestNodeStateJSONRoundtrip(t *testing.T) {
 		CPUUsage:    45.5,
 		MemoryUsage: 72.3,
 		DiskUsage:   60.0,
-		Version:     5,
+		Clock:       VectorClock{"node-1": 5},
 	}
 
 	data, err := json.Marshal(ns)
@@ -107,15 +107,14 @@ func TestNodeStateJSONRoundtrip(t *testing.T) {
 	if decoded.DiskUsage != ns.DiskUsage {
 		t.Errorf("DiskUsage mismatch: got %f, want %f", decoded.DiskUsage, ns.DiskUsage)
 	}
-	if decoded.Version != ns.Version {
-		t.Errorf("Version mismatch: got %d, want %d", decoded.Version, ns.Version)
+	if decoded.Clock["node-1"] != ns.Clock["node-1"] {
+		t.Errorf("Clock[\"node-1\"] mismatch: got %d, want %d", decoded.Clock["node-1"], ns.Clock["node-1"])
 	}
 }
 
 func TestHistoryRecordNewFields(t *testing.T) {
 	hr := HistoryRecord{
 		NodeID:    "node-1",
-		Version:   5,
 		EventType: "node_join",
 		Status:    "active",
 		Source:    "gossip",
@@ -133,9 +132,6 @@ func TestHistoryRecordNewFields(t *testing.T) {
 		t.Fatalf("unmarshal failed: %v", err)
 	}
 
-	if decoded.Version != 5 {
-		t.Errorf("Version mismatch: got %d, want 5", decoded.Version)
-	}
 	if decoded.EventType != "node_join" {
 		t.Errorf("EventType mismatch: got %q, want %q", decoded.EventType, "node_join")
 	}
@@ -180,7 +176,7 @@ func TestClusterStateJSONRoundtrip(t *testing.T) {
 				SystemType:  "linux",
 				CPUUsage:    30.0,
 				MemoryUsage: 50.0,
-				Version:     3,
+				Clock:       VectorClock{"node-1": 3},
 			},
 			"node-2": {
 				NodeID:      "node-2",
@@ -189,7 +185,7 @@ func TestClusterStateJSONRoundtrip(t *testing.T) {
 				SystemType:  "darwin",
 				CPUUsage:    20.0,
 				MemoryUsage: 40.0,
-				Version:     1,
+				Clock:       VectorClock{"node-2": 1},
 			},
 		},
 	}

@@ -77,7 +77,7 @@ func TestSaveAndGetHistoryRecord(t *testing.T) {
 	s, _ := New(":memory:")
 	defer s.Close()
 
-	hr := &models.HistoryRecord{NodeID: "n1", Timestamp: time.Now(), CPUUsage: 30.0, Version: 1, EventType: "metric_update"}
+	hr := &models.HistoryRecord{NodeID: "n1", Timestamp: time.Now(), CPUUsage: 30.0, EventType: "metric_update"}
 	if err := s.SaveHistoryRecord(hr); err != nil {
 		t.Fatalf("save history failed: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestGetNodeHistoryTimeRange(t *testing.T) {
 	for i := range 3 {
 		s.SaveHistoryRecord(&models.HistoryRecord{
 			NodeID: "n1", Timestamp: base.Add(time.Duration(i) * time.Hour),
-			CPUUsage: float64(i * 10), Version: int64(i + 1), EventType: "metric_update",
+			CPUUsage: float64(i * 10), EventType: "metric_update",
 		})
 	}
 
@@ -137,8 +137,8 @@ func TestCleanOldRecords(t *testing.T) {
 	defer s.Close()
 
 	oldTime := time.Now().Add(-2 * time.Hour)
-	s.SaveHistoryRecord(&models.HistoryRecord{NodeID: "n1", Timestamp: oldTime, CPUUsage: 10.0, Version: 1, EventType: "metric_update"})
-	s.SaveHistoryRecord(&models.HistoryRecord{NodeID: "n1", Timestamp: time.Now(), CPUUsage: 20.0, Version: 2, EventType: "metric_update"})
+	s.SaveHistoryRecord(&models.HistoryRecord{NodeID: "n1", Timestamp: oldTime, CPUUsage: 10.0, EventType: "metric_update"})
+	s.SaveHistoryRecord(&models.HistoryRecord{NodeID: "n1", Timestamp: time.Now(), CPUUsage: 20.0, EventType: "metric_update"})
 
 	n, err := s.CleanOldRecords(1 * time.Hour)
 	if err != nil {
@@ -223,7 +223,7 @@ func TestGetAllHistorySince(t *testing.T) {
 		for i := range 5 {
 			hr := &models.HistoryRecord{
 				NodeID:    nodeID,
-				Version:   int64(i + 1),
+				
 				EventType: "metric_update",
 				Timestamp: base.Add(time.Duration(nodeIdx*5+i) * time.Second),
 				CPUUsage:  float64(nodeIdx*5 + i),
@@ -309,9 +309,9 @@ func TestGetLatestHistoryTime(t *testing.T) {
 	t1 := base
 	t2 := base.Add(1 * time.Hour)
 	t3 := base.Add(2 * time.Hour)
-	s.SaveHistoryRecord(&models.HistoryRecord{NodeID: "n1", Version: 1, EventType: "metric_update", Timestamp: t1})
-	s.SaveHistoryRecord(&models.HistoryRecord{NodeID: "n1", Version: 2, EventType: "metric_update", Timestamp: t2})
-	s.SaveHistoryRecord(&models.HistoryRecord{NodeID: "n1", Version: 3, EventType: "metric_update", Timestamp: t3})
+	s.SaveHistoryRecord(&models.HistoryRecord{NodeID: "n1", EventType: "metric_update", Timestamp: t1})
+	s.SaveHistoryRecord(&models.HistoryRecord{NodeID: "n1", EventType: "metric_update", Timestamp: t2})
+	s.SaveHistoryRecord(&models.HistoryRecord{NodeID: "n1", EventType: "metric_update", Timestamp: t3})
 
 	ts, err = s.GetLatestHistoryTime()
 	if err != nil {
@@ -332,7 +332,7 @@ func TestImportHistoryRecords(t *testing.T) {
 	batch1 := make([]*models.HistoryRecord, 5)
 	for i := range 5 {
 		batch1[i] = &models.HistoryRecord{
-			NodeID: "n1", Version: int64(i + 1), EventType: "metric_update",
+			NodeID: "n1", EventType: "metric_update",
 			Timestamp: now.Add(time.Duration(i) * time.Second), CPUUsage: float64(i * 10),
 		}
 	}
@@ -348,11 +348,11 @@ func TestImportHistoryRecords(t *testing.T) {
 	batch2 := make([]*models.HistoryRecord, 7)
 	copy(batch2[:5], batch1)
 	batch2[5] = &models.HistoryRecord{
-		NodeID: "n1", Version: 6, EventType: "metric_update",
+		NodeID: "n1", EventType: "metric_update",
 		Timestamp: now.Add(5 * time.Second), CPUUsage: 50.0,
 	}
 	batch2[6] = &models.HistoryRecord{
-		NodeID: "n1", Version: 7, EventType: "metric_update",
+		NodeID: "n1", EventType: "metric_update",
 		Timestamp: now.Add(6 * time.Second), CPUUsage: 60.0,
 	}
 	n, err = s.ImportHistoryRecords(batch2)
@@ -379,7 +379,7 @@ func TestImportHistoryRecords(t *testing.T) {
 
 	// Scenario 4: first-write-wins on conflict (original value preserved)
 	hrUpdated := &models.HistoryRecord{
-		NodeID: "n1", Version: 1, EventType: "metric_update",
+		NodeID: "n1", EventType: "metric_update",
 		Timestamp: now, CPUUsage: 999.0,
 	}
 	n, _ = s.ImportHistoryRecords([]*models.HistoryRecord{hrUpdated})
@@ -389,7 +389,7 @@ func TestImportHistoryRecords(t *testing.T) {
 	records, _ = s.GetNodeHistory("n1", time.Time{}, time.Time{})
 	var firstRecord *models.HistoryRecord
 	for _, r := range records {
-		if r.Version == 1 {
+		if r.Timestamp.Equal(now) {
 			firstRecord = r
 			break
 		}
@@ -408,7 +408,7 @@ func TestImportHistoryRecordsUniqueConstraint(t *testing.T) {
 
 	// (A, t1, metric_update) → inserted
 	n, err := s.ImportHistoryRecords([]*models.HistoryRecord{{
-		NodeID: "A", Version: 1, EventType: "metric_update", Timestamp: t1,
+		NodeID: "A", EventType: "metric_update", Timestamp: t1,
 	}})
 	if err != nil {
 		t.Fatalf("case 1 failed: %v", err)
@@ -419,7 +419,7 @@ func TestImportHistoryRecordsUniqueConstraint(t *testing.T) {
 
 	// (A, t1, node_leave) → inserted (different EventType, same timestamp)
 	n, err = s.ImportHistoryRecords([]*models.HistoryRecord{{
-		NodeID: "A", Version: 1, EventType: "node_leave", Timestamp: t1,
+		NodeID: "A", EventType: "node_leave", Timestamp: t1,
 	}})
 	if err != nil {
 		t.Fatalf("case 2 failed: %v", err)
@@ -430,7 +430,7 @@ func TestImportHistoryRecordsUniqueConstraint(t *testing.T) {
 
 	// (A, t1, metric_update) again → skipped (duplicate on node_id+timestamp+event_type)
 	n, err = s.ImportHistoryRecords([]*models.HistoryRecord{{
-		NodeID: "A", Version: 2, EventType: "metric_update", Timestamp: t1,
+		NodeID: "A", EventType: "metric_update", Timestamp: t1,
 	}})
 	if err != nil {
 		t.Fatalf("case 3 failed: %v", err)
@@ -441,7 +441,7 @@ func TestImportHistoryRecordsUniqueConstraint(t *testing.T) {
 
 	// (A, t2, metric_update) → inserted (different timestamp)
 	n, err = s.ImportHistoryRecords([]*models.HistoryRecord{{
-		NodeID: "A", Version: 3, EventType: "metric_update", Timestamp: t2,
+		NodeID: "A", EventType: "metric_update", Timestamp: t2,
 	}})
 	if err != nil {
 		t.Fatalf("case 4 failed: %v", err)
@@ -452,7 +452,7 @@ func TestImportHistoryRecordsUniqueConstraint(t *testing.T) {
 
 	// (B, t1, metric_update) → inserted (different NodeID)
 	n, err = s.ImportHistoryRecords([]*models.HistoryRecord{{
-		NodeID: "B", Version: 1, EventType: "metric_update", Timestamp: t1,
+		NodeID: "B", EventType: "metric_update", Timestamp: t1,
 	}})
 	if err != nil {
 		t.Fatalf("case 5 failed: %v", err)

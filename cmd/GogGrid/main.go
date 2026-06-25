@@ -205,14 +205,16 @@ func collectAndPublish(nodeID string, stateMgr *state.StateManager,
 
 	ns := hm.ToNodeState(nodeID)
 
-	// Recover and increment Version: memory → SQLite → default 1
-	if existing, exists := stateMgr.GetNode(nodeID); exists {
-		ns.Version = existing.Version + 1
-	} else if persisted, err := store.GetNodeState(nodeID); err == nil {
-		ns.Version = persisted.Version + 1
-	} else {
-		ns.Version = 1
+	// Recover and increment Clock: memory → SQLite → fresh clock
+	if ns.Clock == nil {
+		ns.Clock = make(models.VectorClock)
 	}
+	if existing, exists := stateMgr.GetNode(nodeID); exists {
+		ns.Clock.Merge(existing.Clock)
+	} else if persisted, err := store.GetNodeState(nodeID); err == nil {
+		ns.Clock.Merge(persisted.Clock)
+	}
+	ns.Clock.Increment(nodeID)
 	ns.LastUpdated = time.Now()
 	ns.LastSeen = time.Now()
 	ns.Status = "active"
@@ -233,7 +235,6 @@ func collectAndPublish(nodeID string, stateMgr *state.StateManager,
 	// Save history record with event metadata for dedup and audit
 	hr := &models.HistoryRecord{
 		NodeID:       nodeID,
-		Version:      ns.Version,
 		EventType:    "metric_update",
 		Source:       "local",
 		Timestamp:    time.Now(),

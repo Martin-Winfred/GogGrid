@@ -32,7 +32,7 @@ type NodeState struct {
 	SystemLoad   SystemLoad   `json:"system_load"    gorm:"embedded;embeddedPrefix:sys_"`
 	LastSeen     time.Time    `json:"last_seen"      gorm:"column:last_seen"`
 	LastUpdated  time.Time    `json:"last_updated"   gorm:"column:last_updated"`
-	Version      int64        `json:"version"`
+	Clock        VectorClock  `json:"clock"          gorm:"-"`
 }
 
 // HistoryRecord represents a historical metrics record
@@ -45,17 +45,16 @@ type HistoryRecord struct {
 	DiskUsage    float64      `gorm:"column:disk_usage"`
 	NetInterface NetInterface `gorm:"embedded;embeddedPrefix:net_"`
 	SystemLoad   SystemLoad   `gorm:"embedded;embeddedPrefix:sys_"`
-	Version      int64        `json:"version"    gorm:"column:version;index"`
 	EventType    string       `json:"event_type" gorm:"column:event_type;index;default:metric_update"`
 	Status       string       `json:"status"     gorm:"column:status"`
 	Source       string       `json:"source"     gorm:"column:source;index;default:local"`
 }
 
 // VectorClock tracks causal ordering of state updates across nodes.
-// Reserved for future fast-sync: when a new node joins the cluster and needs
-// bulk state transfer, VectorClock will enable efficient delta computation.
-// Currently not wired into conflict resolution — state.resolveConflict()
-// uses scalar Version + LWW (Last-Writer-Wins).
+// Used by state.resolveConflict() to detect happened-before relationships
+// and concurrent writes. Each node's entry is incremented on every local
+// state publish and merged on every received update, enabling efficient
+// delta computation for bulk state transfer.
 type VectorClock map[string]int64
 
 // Increment increments the version for a node
